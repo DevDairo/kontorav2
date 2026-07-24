@@ -7,6 +7,7 @@ import com.kontora.pos.evidencias.storage.EvidenciaStorageClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,6 +23,7 @@ import javax.imageio.ImageIO;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -156,6 +158,36 @@ class EvidenciasIntegrationTest {
                 startsWith("pagos-venta/" + idPagoTransferencia + "/"),
                 eq(MediaType.IMAGE_JPEG_VALUE),
                 any(byte[].class));
+    }
+
+    @Test
+    void cargaFotografiaMovilAplicandoOrientacionExifAntesDeAlmacenar() throws Exception {
+        crearCajaAbierta();
+        UUID idPagoTransferencia = crearVentaConPago(
+                idUsuarioVendedor,
+                "transferencia",
+                "pendiente",
+                new BigDecimal("15000.00"));
+        String tokenVendedor = iniciarSesion(USUARIO_VENDEDOR);
+
+        mockMvc.perform(multipart("/api/evidencias/pagos-venta/{idPagoVenta}", idPagoTransferencia)
+                        .file(imagenJpegExif("foto-vertical.jpg", 40, 20, 6))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenVendedor)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.formatoArchivo").value("jpg"))
+                .andExpect(jsonPath("$.fueComprimido").value(true));
+
+        ArgumentCaptor<byte[]> contenidoCaptor = ArgumentCaptor.forClass(byte[].class);
+        verify(storageClient).subir(
+                startsWith("pagos-venta/" + idPagoTransferencia + "/"),
+                eq(MediaType.IMAGE_JPEG_VALUE),
+                contenidoCaptor.capture());
+
+        BufferedImage imagenAlmacenada = ImageIO.read(
+                new ByteArrayInputStream(contenidoCaptor.getValue()));
+        assertThat(imagenAlmacenada).isNotNull();
+        assertThat(imagenAlmacenada.getWidth()).isEqualTo(20);
+        assertThat(imagenAlmacenada.getHeight()).isEqualTo(40);
     }
 
     @Test
@@ -512,6 +544,44 @@ class EvidenciasIntegrationTest {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         ImageIO.write(image, "png", output);
         return new MockMultipartFile("archivo", nombreArchivo, MediaType.IMAGE_PNG_VALUE, output.toByteArray());
+    }
+
+    private MockMultipartFile imagenJpegExif(
+            String nombreArchivo,
+            int ancho,
+            int alto,
+            int orientacion) throws Exception {
+        BufferedImage image = new BufferedImage(ancho, alto, BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = image.createGraphics();
+        graphics.setColor(Color.BLUE);
+        graphics.fillRect(0, 0, ancho, alto);
+        graphics.dispose();
+
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+        ImageIO.write(image, "jpg", jpeg);
+        byte[] contenidoJpeg = jpeg.toByteArray();
+
+        ByteArrayOutputStream orientada = new ByteArrayOutputStream();
+        orientada.write(contenidoJpeg, 0, 2);
+        orientada.writeBytes(new byte[]{
+                (byte) 0xFF, (byte) 0xE1, 0, 0x22,
+                'E', 'x', 'i', 'f', 0, 0,
+                'I', 'I', 0x2A, 0,
+                8, 0, 0, 0,
+                1, 0,
+                0x12, 0x01,
+                3, 0,
+                1, 0, 0, 0,
+                (byte) orientacion, 0, 0, 0,
+                0, 0, 0, 0
+        });
+        orientada.write(contenidoJpeg, 2, contenidoJpeg.length - 2);
+
+        return new MockMultipartFile(
+                "archivo",
+                nombreArchivo,
+                MediaType.IMAGE_JPEG_VALUE,
+                orientada.toByteArray());
     }
 
     private MockMultipartFile pdf(String nombreArchivo) {

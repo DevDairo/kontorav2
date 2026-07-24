@@ -359,14 +359,15 @@ public class EvidenciasService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "El archivo enviado no es una imagen valida");
         }
 
+        BufferedImage imagenOrientada = OrientacionImagenExif.normalizar(imagenOriginal, contenidoOriginal);
         BufferedImage imagenRgb = new BufferedImage(
-                imagenOriginal.getWidth(),
-                imagenOriginal.getHeight(),
+                imagenOrientada.getWidth(),
+                imagenOrientada.getHeight(),
                 BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = imagenRgb.createGraphics();
         graphics.setColor(Color.WHITE);
         graphics.fillRect(0, 0, imagenRgb.getWidth(), imagenRgb.getHeight());
-        graphics.drawImage(imagenOriginal, 0, 0, null);
+        graphics.drawImage(imagenOrientada, 0, 0, null);
         graphics.dispose();
 
         Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName(FORMATO_JPG);

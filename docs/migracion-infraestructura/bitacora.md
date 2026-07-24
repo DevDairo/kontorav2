@@ -236,6 +236,19 @@
 | DOC-VAL-001 | VAL | resuelto | La documentacion funcional activa fue contrastada con los componentes y pruebas de Ventas, Consultas/Evidencias, Transferencias e Inventario. Se agrego una matriz de cambios recientes con comprobantes, desplazamiento, visor, lenguaje operativo, pestañas, reabastecimiento, roles y resultados de pruebas. |
 | DOC-VAL-002 | VAL | resuelto | La auditoria documental final reviso 81 archivos Markdown activos sin enlaces locales rotos. Las 25 variables usadas por Compose local y las 21 de produccion estan presentes en sus plantillas; no se detectaron JWT reales ni comandos de tunnel pegados fuera de `infra/.env`. Tambien se confirmo que `frontend/vercel.json` no existe, el generador portable de secretos esta disponible y `.git` permanece vacio, sin `HEAD` ni `config`. |
 
+## Correccion de orientacion en fotografias moviles
+
+| ID | Tipo | Estado | Detalle |
+| --- | --- | --- | --- |
+| IMG-REQ-001 | REQ | resuelto | Las fotografias tomadas verticalmente en algunos dispositivos deben conservar esa orientacion tanto en la vista previa como en la descarga. La regla aplica a evidencias de ventas, gastos, consignaciones y pagos de servicios. |
+| IMG-ERR-001 | ERR | resuelto | `ImageIO` decodificaba la matriz de pixeles de JPEG/PNG y el compresor la guardaba nuevamente como JPG sin aplicar primero la etiqueta EXIF `0x0112`. En fotografias moviles con matriz horizontal, la recodificacion eliminaba el metadato y dejaba el archivo acostado de forma permanente. |
+| IMG-MOD-001 | MOD | resuelto | El backend ahora lee EXIF en JPEG little-endian y big-endian, aplica fisicamente las ocho orientaciones mediante una transformacion sin cambio de contrato y despues comprime a JPG. El mismo archivo corregido alimenta Storage, vista previa y descarga. |
+| IMG-MOD-002 | MOD | resuelto | El visor agrega `image-orientation: from-image` como defensa para formatos que conserven metadata, aunque la correccion principal ocurre en el backend antes de almacenar. |
+| IMG-VAL-001 | VAL | resuelto | `OrientacionImagenExifTest` ejecuto 3 pruebas sin fallos para las ocho orientaciones, EXIF big-endian y metadata invalida. Junto con `EvidenciasIntegrationTest` se ejecutaron 11 pruebas, 0 fallos, 0 errores y `BUILD SUCCESS`; la integracion confirma que una matriz JPEG horizontal con EXIF `6` llega a Storage con dimensiones verticales. Queda la aceptacion visual con una fotografia real despues de aplicar las imagenes Docker. |
+| DOC-MOD-001 | MOD | resuelto | README y las guias operativas de PostgreSQL, Storage, Nginx, Cloudflare y Git fueron simplificadas. Los procedimientos ahora usan comandos directos, secuencias en orden exacto y detencion ante el primer error; se retiraron bloques auxiliares con variables, objetos, condicionales y diagnosticos extensos de PowerShell. |
+| DOC-MOD-002 | MOD | resuelto | El README incorpora la recuperacion ordenada de servicios en Windows y VPS. Distingue Docker apagado, contenedores pausados y servicios detenidos; incluye las variantes con y sin Cloudflare Tunnel, comprobaciones de salud y advertencias para proteger los volumenes persistentes. |
+| DOC-VAL-003 | VAL | resuelto | La documentacion activa conserva 81 archivos Markdown y cero enlaces locales rotos. Fuera de la bitacora historica no quedan comandos con `PSCustomObject`, `LASTEXITCODE`, `Resolve-Path`, `ConvertFrom-Json`, `Start-Sleep`, `Where-Object`, `Select-Object` o `throw`. |
+
 ## Plantilla para nuevos registros
 
 | ID | Tipo | Estado | Detalle |

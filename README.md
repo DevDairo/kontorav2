@@ -70,42 +70,148 @@ se instalan en Windows para ejecutar el stack contenedorizado.
 
 ```powershell
 Copy-Item infra\.env.example infra\.env
-
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-    -File .\infra\scripts\New-StorageSecrets.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\infra\scripts\New-StorageSecrets.ps1
 ```
 
 Copiar los dos valores generados a `infra/.env`, definir un `JWT_SECRET`
 exclusivo y validar:
 
 ```powershell
-docker compose --env-file infra\.env `
-    -f infra\compose.local.yml `
-    config --quiet
-
-docker compose --env-file infra\.env `
-    -f infra\compose.local.yml `
-    up -d --build
-
-docker compose --env-file infra\.env `
-    -f infra\compose.local.yml `
-    ps -a
-
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8081/healthz
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8081/api/health
+docker compose --env-file infra\.env -f infra\compose.local.yml config --quiet
+docker compose --env-file infra\.env -f infra\compose.local.yml up -d --build
+docker compose --env-file infra\.env -f infra\compose.local.yml ps -a
+curl.exe --fail http://127.0.0.1:8081/healthz
+curl.exe --fail http://127.0.0.1:8081/api/health
 ```
 
 Abrir `http://127.0.0.1:8081/login`.
 
+Ejecutar los comandos en ese orden y no continuar cuando uno falle.
+
 Detener sin borrar datos:
 
 ```powershell
-docker compose --env-file infra\.env `
-    -f infra\compose.local.yml `
-    down
+docker compose --env-file infra\.env -f infra\compose.local.yml down
 ```
 
 No usar `down -v`: elimina los volumenes de PostgreSQL y Storage.
+
+## Restablecer los servicios
+
+Estos procedimientos recuperan contenedores pausados o detenidos sin borrar
+PostgreSQL, evidencias ni volúmenes.
+
+### Windows
+
+1. Abrir PowerShell, iniciar Docker Desktop y entrar al proyecto:
+
+```powershell
+docker desktop start
+cd C:\Users\corre\Documentos\kontora
+```
+
+2. Consultar el estado:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel ps -a
+```
+
+3. Solo si algún servicio aparece como `Paused`, reanudarlo:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel unpause
+```
+
+Si no hay servicios en estado `Paused`, omitir este comando.
+
+4. Iniciar los servicios detenidos o volver a crear los contenedores que falten:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel up -d
+```
+
+5. Confirmar el estado y probar la aplicación:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel ps -a
+curl.exe --fail http://127.0.0.1:8081/healthz
+curl.exe --fail http://127.0.0.1:8081/api/health
+```
+
+Si no se utiliza Cloudflare Tunnel, reemplazar los comandos de los pasos 2 a 5
+por estos:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml ps -a
+docker compose --env-file infra\.env -f infra\compose.local.yml unpause
+docker compose --env-file infra\.env -f infra\compose.local.yml up -d
+docker compose --env-file infra\.env -f infra\compose.local.yml ps -a
+curl.exe --fail http://127.0.0.1:8081/healthz
+curl.exe --fail http://127.0.0.1:8081/api/health
+```
+
+En este caso también se debe omitir `unpause` cuando ningún servicio aparezca
+como `Paused`.
+
+### VPS Ubuntu
+
+1. Conectarse por SSH, iniciar Docker y entrar al proyecto:
+
+```bash
+sudo systemctl start docker
+cd /opt/kontora
+```
+
+2. Consultar el estado:
+
+```bash
+docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel ps -a
+```
+
+3. Solo si algún servicio aparece como `Paused`, reanudarlo:
+
+```bash
+docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel unpause
+```
+
+Si no hay servicios en estado `Paused`, omitir este comando.
+
+4. Iniciar los servicios detenidos o volver a crear los contenedores que falten:
+
+```bash
+docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel up -d
+```
+
+5. Confirmar el estado y probar la aplicación:
+
+```bash
+docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel ps -a
+curl --fail http://127.0.0.1:8081/healthz
+curl --fail http://127.0.0.1:8081/api/health
+curl --fail https://kontora-pos.store/healthz
+```
+
+`unpause` reanuda los contenedores pausados. `up -d` inicia los detenidos y
+vuelve a crear los que falten usando las imágenes existentes. Ninguno de estos
+comandos elimina los datos persistentes.
+
+Los servicios `storage-db-init` y `storage-bucket-init` pueden aparecer como
+`Exited (0)`; ese es su estado normal después de completar su trabajo.
+
+Si un comando falla, no ejecutar el siguiente. Revisar primero:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel logs --tail=100
+```
+
+En el VPS:
+
+```bash
+docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel logs --tail=100
+```
+
+No usar `docker compose down -v`, `docker volume rm` ni eliminar manualmente
+los volúmenes para restablecer servicios.
 
 ## VPS nuevo desde cero
 
@@ -263,15 +369,8 @@ Orden limpio:
 5. Iniciar la replica:
 
 ```bash
-docker compose --env-file infra/.env \
-  -f infra/compose.prod.yml \
-  --profile tunnel \
-  up -d --no-deps cloudflared
-
-docker compose --env-file infra/.env \
-  -f infra/compose.prod.yml \
-  --profile tunnel \
-  logs --tail=120 cloudflared
+docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel up -d --no-deps cloudflared
+docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel logs --tail=100 cloudflared
 ```
 
 6. Cuando el panel indique `Healthy`, crear:
@@ -306,9 +405,7 @@ BOOTSTRAP_MANAGER_PASSWORD=
 ```
 
 ```bash
-docker compose --env-file infra/.env \
-  -f infra/compose.prod.yml \
-  up -d --no-deps --no-build --force-recreate backend
+docker compose --env-file infra/.env -f infra/compose.prod.yml up -d --no-deps --no-build --force-recreate backend
 ```
 
 ## Errores frecuentes
@@ -342,35 +439,20 @@ Siempre respaldar y restaurar ambos componentes de forma coordinada. No usar
 La guia segura esta en
 [docs/migracion-infraestructura/06-repositorio-git-nuevo.md](docs/migracion-infraestructura/06-repositorio-git-nuevo.md).
 
-El `.git` detectado actualmente esta vacio y Git no reconoce el directorio como
-repositorio. Tras confirmar la ruta y conservar una copia:
+Conservar primero una copia del proyecto y crear un repositorio remoto privado
+y vacio. Ejecutar en este orden:
 
 ```powershell
-$projectRoot = (Resolve-Path .).Path
-$gitDirectory = Join-Path $projectRoot '.git'
-
-if ((Split-Path $projectRoot -Leaf) -ne 'kontora') {
-    throw "Ruta inesperada: $projectRoot"
-}
-
-if (Test-Path -LiteralPath $gitDirectory) {
-    Remove-Item -LiteralPath $gitDirectory -Recurse -Force
-}
-
+Remove-Item -LiteralPath .git -Recurse -Force
 git init -b main
-git add .
-git diff --cached --check
-git status --short
-```
-
-Antes del commit, comprobar que `infra/.env`, `backups/`, `.codex/`,
-`.agents/`, `target/`, `node_modules/` y `dist/` no estan preparados. Luego:
-
-```powershell
+git add --all
 git commit -m "feat: preparar Kontora POS contenedorizado"
 git remote add origin <URL-DEL-REPOSITORIO-NUEVO>
 git push -u origin main
 ```
+
+Si `.git` no existe, omitir únicamente el primer comando. No continuar con el
+siguiente comando cuando el anterior haya fallado.
 
 No usar `--force` ni publicar un secreto. Si un token llega al remoto, debe
 rotarse aunque el repositorio sea privado.

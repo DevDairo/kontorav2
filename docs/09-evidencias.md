@@ -17,6 +17,8 @@ Al abrir un soporte, la interfaz desplaza suavemente su vista previa al area vis
 
 - Carga multipart de imagenes o PDF autorizados.
 - Compresion de imagenes en backend y almacenamiento de metadata original y comprimida.
+- Normalizacion de orientacion EXIF antes de comprimir fotografias JPEG tomadas
+  desde dispositivos moviles.
 - Consulta de metadata por el registro que respalda la evidencia.
 - Vista previa responsive de imagenes y PDF para usuarios autorizados, con selector cuando un registro conserva varios soportes.
 - Cuando existe un solo soporte, el visor ocupa todo el ancho disponible. La imagen conserva sus dimensiones naturales, se centra sin recorte y solo se reduce si excede el espacio disponible; con varios soportes, el selector se presenta como una franja horizontal.
@@ -38,6 +40,13 @@ Al abrir un soporte, la interfaz desplaza suavemente su vista previa al area vis
 - El bucket privado activo es `kontoraimagenes`; solo el backend usa la clave `service_role`.
 - Storage no se publica en Internet. Los archivos se guardan en un volumen Docker y la metadata vive en el esquema PostgreSQL `storage`.
 - La vista previa solicita el archivo al endpoint autenticado del backend, crea una URL temporal en el navegador y la revoca al cambiar de soporte o cerrar el visor.
+- El backend aplica fisicamente a los pixeles las orientaciones EXIF `1` a `8`
+  antes de convertir la imagen a JPG. La vista previa y la descarga utilizan
+  asi el mismo archivo ya orientado, sin depender del navegador o del visor del
+  dispositivo.
+- La correccion se aplica a nuevas cargas. Si una evidencia anterior fue
+  comprimida sin orientacion y ya perdio el EXIF original, debe volver a
+  adjuntarse desde la fotografia original.
 - Imagenes y PDF se representan dentro de la aplicacion; un formato no representable conserva la opcion de descarga.
 - Cada archivo se relaciona con un unico registro operativo; un pago puede conservar varios archivos de evidencia para trazabilidad.
 - La interfaz no diferencia visualmente entre un archivo inexistente y una descarga que no puede completarse; en ambos casos informa que la evidencia no esta disponible. El backend mantiene el estado tecnico real para trazabilidad y diagnostico.

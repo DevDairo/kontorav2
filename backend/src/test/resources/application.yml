@@ -1,0 +1,17 @@
+spring:
+  datasource:
+    url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:kontora_pos}?sslmode=${DB_SSLMODE:disable}&currentSchema=kontora_pos_test"
+    username: ${DB_USER:kontora_pos}
+    password: ${DB_PASSWORD:kontora_pos_local_password}
+  jpa:
+    properties:
+      hibernate:
+        default_schema: kontora_pos_test
+  flyway:
+    create-schemas: true
+    default-schema: kontora_pos_test
+    schemas: kontora_pos_test
+
+kontora:
+  cors:
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173

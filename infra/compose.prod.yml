@@ -1,0 +1,200 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kontora_pos_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:?Defina DB_NAME en infra/.env}
+      POSTGRES_USER: ${DB_USER:?Defina DB_USER en infra/.env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD en infra/.env}
+    volumes:
+      - kontora_pos_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    stop_grace_period: 1m
+    networks:
+      - database
+
+  storage-db-init:
+    image: postgres:16-alpine
+    container_name: kontora_pos_storage_db_init
+    restart: "no"
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD en infra/.env}
+    command:
+      - psql
+      - --set
+      - ON_ERROR_STOP=1
+      - --host
+      - postgres
+      - --username
+      - ${DB_USER:?Defina DB_USER en infra/.env}
+      - --dbname
+      - ${DB_NAME:?Defina DB_NAME en infra/.env}
+      - --file
+      - /opt/kontora/init-storage-roles.sql
+    volumes:
+      - ./storage/init-storage-roles.sql:/opt/kontora/init-storage-roles.sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - database
+
+  storage:
+    image: supabase/storage-api:v1.60.4
+    container_name: kontora_pos_storage
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: 5000
+      AUTH_JWT_SECRET: ${STORAGE_JWT_SECRET:?Defina STORAGE_JWT_SECRET en infra/.env}
+      AUTH_JWT_ALGORITHM: HS256
+      SERVICE_KEY: ${STORAGE_SERVICE_ROLE_KEY:?Defina STORAGE_SERVICE_ROLE_KEY en infra/.env}
+      DATABASE_URL: ${STORAGE_DATABASE_URL:?Defina STORAGE_DATABASE_URL en infra/.env}
+      DATABASE_MAX_CONNECTIONS: ${STORAGE_DATABASE_MAX_CONNECTIONS:-5}
+      DATABASE_FREE_POOL_AFTER_INACTIVITY: 30000
+      DB_INSTALL_ROLES: "false"
+      DB_SUPER_USER: ${DB_USER:?Defina DB_USER en infra/.env}
+      STORAGE_BACKEND: file
+      STORAGE_FILE_BACKEND_PATH: /var/lib/storage
+      STORAGE_FILE_ETAG_ALGORITHM: md5
+      STORAGE_S3_BUCKET: ${STORAGE_NAMESPACE:-kontora-storage}
+      SERVER_REGION: ${STORAGE_REGION:-local}
+      UPLOAD_FILE_SIZE_LIMIT: ${STORAGE_FILE_SIZE_LIMIT:-13631488}
+      UPLOAD_FILE_SIZE_LIMIT_STANDARD: ${STORAGE_FILE_SIZE_LIMIT:-13631488}
+      IMAGE_TRANSFORMATION_ENABLED: "false"
+      S3_PROTOCOL_ENABLED: "false"
+      PG_QUEUE_ENABLE: "false"
+      RATE_LIMITER_ENABLED: "false"
+      OTEL_METRICS_ENABLED: "false"
+      PROMETHEUS_METRICS_ENABLED: "false"
+      LOG_LEVEL: ${STORAGE_LOG_LEVEL:-warn}
+    depends_on:
+      storage-db-init:
+        condition: service_completed_successfully
+    volumes:
+      - kontora_pos_storage_data:/var/lib/storage
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:5000/health',{headers:{Authorization:'Bearer '+process.env.SERVICE_KEY,apikey:process.env.SERVICE_KEY}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    stop_grace_period: 30s
+    networks:
+      - database
+      - application
+
+  storage-bucket-init:
+    image: supabase/storage-api:v1.60.4
+    container_name: kontora_pos_storage_bucket_init
+    restart: "no"
+    entrypoint:
+      - node
+      - /opt/kontora/init-bucket.mjs
+    environment:
+      STORAGE_API_URL: http://storage:5000
+      STORAGE_SERVICE_ROLE_KEY: ${STORAGE_SERVICE_ROLE_KEY:?Defina STORAGE_SERVICE_ROLE_KEY en infra/.env}
+      STORAGE_BUCKET: ${SUPABASE_STORAGE_BUCKET:-kontoraimagenes}
+      STORAGE_BUCKET_FILE_SIZE_LIMIT: ${STORAGE_FILE_SIZE_LIMIT:-13631488}
+    volumes:
+      - ./storage/init-bucket.mjs:/opt/kontora/init-bucket.mjs:ro
+    depends_on:
+      storage:
+        condition: service_healthy
+    networks:
+      - application
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: kontora_pos_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_SSLMODE: disable
+      SUPABASE_STORAGE_API_URL: http://storage:5000
+      SUPABASE_STORAGE_SERVICE_ROLE_KEY: ${STORAGE_SERVICE_ROLE_KEY:?Defina STORAGE_SERVICE_ROLE_KEY en infra/.env}
+      SUPABASE_STORAGE_BUCKET: ${SUPABASE_STORAGE_BUCKET:-kontoraimagenes}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      storage-bucket-init:
+        condition: service_completed_successfully
+    ports:
+      # Cloudflare Tunnel se ejecuta en la VM y consume este origen local.
+      # No publicar Spring Boot directamente en Internet.
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    networks:
+      - database
+      - application
+      - edge
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${FRONTEND_API_URL:-/api}
+    container_name: kontora_pos_frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      # Loopback queda para diagnostico; cloudflared usa frontend:8080 por red.
+      - "${FRONTEND_BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-8081}:8080"
+    stop_grace_period: 10s
+    networks:
+      - edge
+      - tunnel
+
+  cloudflared:
+    image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2026.7.2}
+    container_name: kontora_pos_cloudflared
+    restart: unless-stopped
+    profiles:
+      - tunnel
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      frontend:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - tunnel
+
+volumes:
+  kontora_pos_postgres_data:
+    name: ${POSTGRES_VOLUME_NAME:-kontora_pos_postgres_prod_data}
+  kontora_pos_storage_data:
+    name: ${STORAGE_VOLUME_NAME:-kontora_pos_storage_prod_data}
+
+networks:
+  database:
+    internal: true
+  application:
+  edge:
+  tunnel:

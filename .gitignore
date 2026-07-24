@@ -1,0 +1,46 @@
+# Entorno
+.env
+*.env
+!*.env.example
+
+# Java / Spring Boot
+target/
+*.class
+*.jar
+*.war
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Respaldos de base de datos
+backups/
+*.dump
+*.backup
+
+# Docker local
+*.pid
+.tmp/
+
+# Herramientas locales de asistencia
+.codex/
+.agents/
+
+# Documento de trabajo local
+/docs/Manual_Tecnico_Despliegue_y_Configuracion_Kontora_POS.docx

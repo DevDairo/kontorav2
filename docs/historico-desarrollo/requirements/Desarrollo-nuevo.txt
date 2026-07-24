@@ -1,0 +1,86 @@
+Actua como arquitecto e ingeniero full stack senior para reconstruir desde cero el proyecto Kontora POS, evitando los errores cometidos anteriormente.
+
+Objetivo general:
+Crear nuevamente el proyecto Kontora POS desde cero, pero esta vez usando desde el inicio la base de datos, el diseño lógico y la documentación de fases como fuente principal de verdad.
+
+IMPORTANTE:
+Este nuevo desarrollo debe respetar completamente la documentación existente del proyecto(ARCHIVOS ADJUNTOS). No improvisar nombres de tablas, columnas, paquetes, entidades, endpoints ni reglas de negocio si ya están definidos en los documentos.
+
+Fuentes obligatorias de contexto:
+Debes leer y usar como guía principal estos archivos:
+
+1. `Diseno_Base_Datos_Kontora_POS.md`
+2. `kontora_pos_schema.txt`
+3. `fase_1_creacion_proyecto_entorno_docker.md`
+4. `fase_2_infraestructura_base_estructura_proyecto.md`
+5. `fase_3_desarrollo_logica_backend_modulos.md`
+6. Cualquier documentación adicional del proyecto relacionada con despliegue, arquitectura, requisitos o fases.
+
+Regla técnica principal:
+La base de datos ya está diseñada. El backend, las migraciones, las entidades, los DTOs, los servicios, los endpoints, las pruebas y posteriormente el frontend deben adaptarse al diseño de base de datos, no al contrario.
+
+No repetir errores anteriores:
+- No crear tablas alternativas si ya existe una tabla canónica.
+- No usar nombres inventados si el schema ya define nombres.
+- No cambiar `existencias_inventario_general` por `stocks_generales`.
+- No cambiar `existencias_inventario_diario` por `stocks_diarios_vasos`.
+- No cambiar `valor_pago` por `monto_pago`.
+- No cambiar `estado_validacion` por `estado_pago`.
+- No cambiar `id_usuario_vendedor` por `id_usuario_registro` si el schema define el primero.
+- No modificar el schema para acomodarlo al código.
+- No mantener compatibilidad artificial con nombres incorrectos.
+- Si el API debe rediseñarse para representar bien el modelo, rediseñarlo.
+
+Orden obligatorio de trabajo:
+Trabaja por fases, de forma secuencial.
+
+FASE 1: Creación del proyecto y entorno Docker
+- Crear el proyecto desde cero siguiendo `fase_1_creacion_proyecto_entorno_docker.md`.
+- Configurar estructura base.
+- Configurar Docker/Docker Compose si aplica.
+- Preparar PostgreSQL local.
+- No avanzar a backend funcional hasta que la base del entorno esté clara.
+
+FASE 2: Infraestructura base y estructura del proyecto
+- Crear la estructura del backend siguiendo `fase_2_infraestructura_base_estructura_proyecto.md`.
+- Organizar paquetes de forma coherente con los módulos del sistema.
+- Configurar Spring Boot, Maven, seguridad base, Flyway, JPA y pruebas.
+- Ubicar correctamente documentación, scripts y configuración.
+- No duplicar carpetas ni paquetes innecesarios.
+- Mantener nombres en español para el dominio cuando corresponda.
+
+FASE 3: Desarrollo backend modular
+Desarrollar los módulos en este orden:
+
+1. Seguridad, usuarios y sesiones.
+2. Caja diaria.
+3. Catálogos base.
+4. Ventas y pagos.
+5. Inventario operativo.
+6. Gastos, adiciones y pago a trabajadores.
+7. Cierre de caja y depósito.
+8. Evidencias y almacenamiento.
+9. Auditoría transversal.
+10. Consultas operativas.
+
+Para cada módulo:
+- Leer primero las tablas correspondientes en `Diseno_Base_Datos_Kontora_POS.md`.
+- Revisar las tablas reales en `kontora_pos_schema.txt`.
+- Crear o ajustar migraciones Flyway respetando exactamente el schema.
+- Crear entidades JPA con `@Table`, `@Column` y relaciones usando nombres reales.
+- Crear repositorios.
+- Crear servicios con reglas de negocio.
+- Crear DTOs coherentes con el modelo.
+- Crear controladores REST.
+- Crear pruebas unitarias.
+- Ejecutar `mvn clean test` antes de avanzar al siguiente módulo.
+
+Regla para API:
+El API debe representar correctamente el modelo de negocio. Si el diseño exige cambiar nombres de request/response, endpoints o estructura de datos, hacerlo. La prioridad es la coherencia con la base de datos y las reglas documentadas.
+
+Reglas críticas de negocio:
+- Solo existe un local y una caja diaria por fecha.
+- La caja debe estar abierta para vender.
+- Las ventas solo pueden anularse mientras la caja esté abierta.
+- Al anular una venta, los vasos vuelven al stock diario.
+- La base de caja se excluye

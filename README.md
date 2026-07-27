@@ -338,7 +338,13 @@ docker compose --env-file infra/.env \
 
 docker compose --env-file infra/.env \
   -f infra/compose.prod.yml \
-  up -d --no-build backend frontend
+  up -d --no-deps --no-build backend
+
+curl --fail http://127.0.0.1:8080/api/health
+
+docker compose --env-file infra/.env \
+  -f infra/compose.prod.yml \
+  up -d --no-deps --no-build frontend
 
 docker compose --env-file infra/.env \
   -f infra/compose.prod.yml \
@@ -350,7 +356,9 @@ curl --fail http://127.0.0.1:8081/api/health
 ```
 
 `storage-db-init` y `storage-bucket-init` deben salir con codigo `0`. No
-continuar si los health no responden `200`.
+continuar si los health no responden `200`. Backend y frontend se inician por
+separado con `--no-deps` para no volver a ejecutar los inicializadores de
+Storage.
 
 El Dockerfile del backend compila con `-DskipTests`; las pruebas se ejecutan
 antes de publicar la version, no durante el build de produccion.
@@ -425,6 +433,7 @@ docker compose --env-file infra/.env -f infra/compose.prod.yml up -d --no-deps -
 ## Datos, respaldo y recuperacion
 
 - [Reinicio total de PostgreSQL, bucket y gerente inicial](docs/reinicio-total-datos/README.md)
+- [Panel web de operaciones, respaldos, exportaciones y evidencias](docs/panel-operaciones/README.md)
 - [PostgreSQL y backend](docs/migracion-infraestructura/01-fase-postgresql-backend.md)
 - [Storage autoalojado](docs/migracion-infraestructura/02-fase-supabase-storage-local.md)
 - [Frontend Nginx](docs/migracion-infraestructura/03-fase-frontend-nginx.md)

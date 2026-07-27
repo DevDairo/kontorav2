@@ -257,6 +257,10 @@
 | RESET-MOD-001 | MOD | resuelto | Las guías activas ahora esperan la salud de Storage con `up -d --wait --wait-timeout 120 storage` y crean el bucket con `run --rm --no-deps storage-bucket-init`. La recuperación retira solamente los dos contenedores inicializadores y evita relanzar dependencias. |
 | RESET-VAL-001 | VAL | resuelto | Tras retirar los inicializadores fallidos, `run --rm --no-deps storage-bucket-init` terminó correctamente con `Bucket privado 'kontoraimagenes' preparado correctamente.` |
 | RESET-ERR-002 | ERR | resuelto | La consulta compacta de validación anidó `sh -c`, comillas y `-F "|"`. PowerShell fragmentó los argumentos y produjo `-U: not found` y `psql: option requires an argument: F`. Las consultas Windows ahora invocan `psql` directamente, en comandos separados y sin el delimitador problemático. |
+| RESET-MOD-002 | MOD | resuelto | Las guías inician backend y frontend de forma secuencial con `--no-deps` y validan la salud directa del backend antes de continuar. Esto impide que Compose vuelva a recorrer los inicializadores de Storage después de preparar el bucket. |
+| RESET-VAL-002 | VAL | resuelto | El reinicio local quedó cerrado con PostgreSQL y Storage sanos, bucket privado `kontoraimagenes` vacío, migraciones Flyway V1 y V2 exitosas, `gerenteLocal` activo, salud local y pública correctas, bootstrap deshabilitado, contraseña bootstrap vacía y acceso exitoso después de recrear el backend. |
+| RESET-ERR-003 | ERR | resuelto | La guía de reinicio había reutilizado `tar` de `postgres:16-alpine`, aunque la validación F2 demostró que esa variante no conserva `user.supabase.*` y puede provocar `500 ENODATA` al descargar una evidencia restaurada. |
+| RESET-MOD-003 | MOD | resuelto | Los respaldos de Storage usan ahora GNU tar de `debian:bookworm-slim` con `--xattrs` y `--xattrs-include=user.supabase.*`; el dump se limita a los esquemas `public` y `storage`, y la aceptación de producción exige una restauración aislada con descarga de una evidencia conocida. |
 
 ## Plantilla para nuevos registros
 

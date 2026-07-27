@@ -106,8 +106,13 @@ volumen de archivos:
 
 ```powershell
 New-Item -ItemType Directory -Force .\backups
-docker run --rm --mount "type=volume,source=kontora_pos_storage_local_data,target=/data,readonly" --mount "type=bind,source=$PWD\backups,target=/backups" postgres:16-alpine tar -czf /backups/kontora_storage.tar.gz -C /data .
+docker run --rm --mount "type=volume,source=kontora_pos_storage_local_data,target=/data,readonly" --mount "type=bind,source=$PWD\backups,target=/backups" debian:bookworm-slim tar --xattrs "--xattrs-include=user.supabase.*" -czf /backups/kontora_storage.tar.gz -C /data .
 ```
+
+GNU tar conserva los atributos `user.supabase.cache-control` y
+`user.supabase.content-type` dentro del archivo. No reemplazar
+`debian:bookworm-slim` por `postgres:16-alpine`: una copia sin esos atributos
+puede restaurar los bytes y aun así producir `500 ENODATA` al descargarlos.
 
 Conservar juntos:
 
@@ -125,11 +130,12 @@ Ejecutar antes de iniciar Storage:
 
 ```bash
 docker volume create kontora_pos_storage_prod_data
-docker run --rm --mount type=volume,source=kontora_pos_storage_prod_data,target=/restore --mount type=bind,source="$PWD/backups",target=/backups,readonly postgres:16-alpine tar -xzf /backups/kontora_storage.tar.gz -C /restore
+docker run --rm --mount type=volume,source=kontora_pos_storage_prod_data,target=/restore --mount type=bind,source="$PWD/backups",target=/backups,readonly debian:bookworm-slim tar --xattrs '--xattrs-include=user.supabase.*' -xzf /backups/kontora_storage.tar.gz -C /restore
 ```
 
 Después restaurar PostgreSQL y arrancar los servicios en el orden indicado en
-la guía del VPS.
+la guía del VPS. La restauración solo queda validada después de descargar una
+evidencia conocida y comprobar su hash.
 
 ## Límites configurados
 

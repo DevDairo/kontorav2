@@ -232,7 +232,13 @@ docker compose --env-file infra/.env \
 
 docker compose --env-file infra/.env \
   -f infra/compose.prod.yml \
-  up -d --no-build backend frontend
+  up -d --no-deps --no-build backend
+
+curl --fail --show-error http://127.0.0.1:8080/api/health
+
+docker compose --env-file infra/.env \
+  -f infra/compose.prod.yml \
+  up -d --no-deps --no-build frontend
 
 docker compose --env-file infra/.env \
   -f infra/compose.prod.yml \
@@ -245,6 +251,8 @@ PostgreSQL, Storage y frontend deben quedar `healthy`; backend debe estar `Up`.
 No reemplazar `run --rm --no-deps storage-bucket-init` por
 `up storage-bucket-init`: `up` puede relanzar `storage-db-init` mientras
 Storage modifica el esquema y provocar `ERROR: tuple concurrently updated`.
+Backend y frontend también se inician por separado con `--no-deps` para no
+recorrer nuevamente esos inicializadores.
 
 Validar:
 
@@ -431,7 +439,13 @@ docker compose --env-file infra/.env \
 
 docker compose --env-file infra/.env \
   -f infra/compose.prod.yml \
-  up -d --no-deps --no-build backend frontend
+  up -d --no-deps --no-build backend
+
+curl --fail --show-error http://127.0.0.1:8080/api/health
+
+docker compose --env-file infra/.env \
+  -f infra/compose.prod.yml \
+  up -d --no-deps --no-build frontend
 ```
 
 No recrear PostgreSQL o Storage para aplicar solamente código de backend o

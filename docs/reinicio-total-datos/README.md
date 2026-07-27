@@ -142,7 +142,7 @@ docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel
 Respaldar PostgreSQL:
 
 ```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres pg_dump -U kontora_pos -d kontora_pos --format=custom --file=/tmp/kontora_pos_before_reset.dump
+docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres pg_dump -U kontora_pos -d kontora_pos --format=custom --schema=public --schema=storage --no-owner --no-acl --file=/tmp/kontora_pos_before_reset.dump
 docker cp kontora_pos_postgres_local:/tmp/kontora_pos_before_reset.dump "$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM\kontora_pos.dump"
 docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres rm -f /tmp/kontora_pos_before_reset.dump
 ```
@@ -151,20 +151,27 @@ Detener PostgreSQL; después respaldar los archivos:
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml stop postgres
-docker run --rm --mount "type=volume,source=kontora_pos_storage_local_data,target=/data,readonly" --mount "type=bind,source=$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM,target=/backups" postgres:16-alpine tar -czf /backups/kontora_storage.tar.gz -C /data .
+docker run --rm --mount "type=volume,source=kontora_pos_storage_local_data,target=/data,readonly" --mount "type=bind,source=$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM,target=/backups" debian:bookworm-slim tar --xattrs "--xattrs-include=user.supabase.*" -czf /backups/kontora_storage.tar.gz -C /data .
 ```
+
+No sustituir `debian:bookworm-slim` por una imagen Alpine. El archivo debe
+conservar `user.supabase.cache-control` y `user.supabase.content-type`; sin esos
+atributos, una restauración puede conservar el binario pero fallar al
+descargarlo desde Storage.
 
 Comprobar ambos respaldos:
 
 ```powershell
 docker run --rm --mount "type=bind,source=$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM,target=/backups,readonly" postgres:16-alpine sh -c 'pg_restore --list /backups/kontora_pos.dump >/dev/null'
-docker run --rm --mount "type=bind,source=$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM,target=/backups,readonly" postgres:16-alpine sh -c 'tar -tzf /backups/kontora_storage.tar.gz >/dev/null'
+docker run --rm --mount "type=bind,source=$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM,target=/backups,readonly" debian:bookworm-slim tar --xattrs "--xattrs-include=user.supabase.*" -tzf /backups/kontora_storage.tar.gz
 Get-FileHash "$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM\kontora_pos.dump"
 Get-FileHash "$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM\kontora_storage.tar.gz"
 ```
 
-Criterio de cierre: `pg_restore --list` y `tar -tzf` terminan sin error, y
-existen los dos archivos fuera del repositorio.
+Criterio de cierre: `pg_restore --list` y el listado de GNU tar terminan sin
+error, y existen los dos archivos fuera del repositorio. Para aceptar el
+respaldo como restaurable en producción, además se debe restaurar la pareja en
+recursos aislados y descargar al menos una evidencia conocida.
 
 ### Fase A3. Preparar el gerente inicial
 
@@ -284,9 +291,16 @@ Iniciar el backend para que Flyway cree el esquema de la aplicación y el
 bootstrap cree el gerente:
 
 ```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml up -d --no-build backend frontend
+docker compose --env-file infra\.env -f infra\compose.local.yml up -d --no-deps --no-build backend
+curl.exe --fail http://127.0.0.1:8080/api/health
+docker compose --env-file infra\.env -f infra\compose.local.yml up -d --no-deps --no-build frontend
 docker compose --env-file infra\.env -f infra\compose.local.yml ps -a
 ```
+
+No omitir `--no-deps`: después de preparar el bucket, iniciar la aplicación sin
+esa opción puede volver a recorrer los inicializadores de Storage. El backend se
+valida antes de arrancar el frontend para detener el procedimiento en el primer
+error.
 
 Si se usa el túnel local, iniciarlo solamente después de validar la aplicación:
 
@@ -337,7 +351,7 @@ docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel 
 Respaldar PostgreSQL:
 
 ```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --file=/tmp/kontora_pos_before_reset.dump'
+docker compose --env-file infra/.env -f infra/compose.prod.yml exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --schema=public --schema=storage --no-owner --no-acl --file=/tmp/kontora_pos_before_reset.dump'
 docker cp kontora_pos_postgres:/tmp/kontora_pos_before_reset.dump /var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM/kontora_pos.dump
 docker compose --env-file infra/.env -f infra/compose.prod.yml exec -T postgres rm -f /tmp/kontora_pos_before_reset.dump
 ```
@@ -349,9 +363,12 @@ docker compose --env-file infra/.env -f infra/compose.prod.yml stop postgres
 docker run --rm \
   --mount type=volume,source=kontora_pos_storage_prod_data,target=/data,readonly \
   --mount type=bind,source=/var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM,target=/backups \
-  postgres:16-alpine \
-  tar -czf /backups/kontora_storage.tar.gz -C /data .
+  debian:bookworm-slim \
+  tar --xattrs '--xattrs-include=user.supabase.*' -czf /backups/kontora_storage.tar.gz -C /data .
 ```
+
+No usar una imagen Alpine para este archivo: debe conservar los atributos
+extendidos `user.supabase.*`.
 
 Comprobar los respaldos:
 
@@ -363,8 +380,8 @@ docker run --rm \
 
 docker run --rm \
   --mount type=bind,source=/var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM,target=/backups,readonly \
-  postgres:16-alpine \
-  sh -c 'tar -tzf /backups/kontora_storage.tar.gz >/dev/null'
+  debian:bookworm-slim \
+  tar --xattrs '--xattrs-include=user.supabase.*' -tzf /backups/kontora_storage.tar.gz
 
 sha256sum /var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM/kontora_pos.dump
 sha256sum /var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM/kontora_storage.tar.gz
@@ -372,7 +389,8 @@ sha256sum /var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM/kontora_storage.tar.gz
 
 Copiar ambos archivos y sus hashes a almacenamiento externo antes de continuar.
 Un respaldo guardado únicamente en el mismo VPS no protege ante una falla del
-servidor.
+servidor. En producción, aceptar la copia como restaurable únicamente después de
+restaurar ambos archivos en recursos aislados y descargar una evidencia conocida.
 
 ### Fase B3. Detener el stack y registrar los volúmenes anteriores
 
@@ -446,9 +464,13 @@ carrera.
 Iniciar backend y frontend con las imágenes ya preparadas:
 
 ```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml up -d --no-build backend frontend
+docker compose --env-file infra/.env -f infra/compose.prod.yml up -d --no-deps --no-build backend
+curl --fail http://127.0.0.1:8080/api/health
+docker compose --env-file infra/.env -f infra/compose.prod.yml up -d --no-deps --no-build frontend
 docker compose --env-file infra/.env -f infra/compose.prod.yml ps -a
 ```
+
+No omitir `--no-deps`; evita volver a recorrer los inicializadores de Storage.
 
 No eliminar todavía los volúmenes anteriores. Continuar con la validación.
 

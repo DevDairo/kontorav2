@@ -249,6 +249,15 @@
 | DOC-MOD-002 | MOD | resuelto | El README incorpora la recuperacion ordenada de servicios en Windows y VPS. Distingue Docker apagado, contenedores pausados y servicios detenidos; incluye las variantes con y sin Cloudflare Tunnel, comprobaciones de salud y advertencias para proteger los volumenes persistentes. |
 | DOC-VAL-003 | VAL | resuelto | La documentacion activa conserva 81 archivos Markdown y cero enlaces locales rotos. Fuera de la bitacora historica no quedan comandos con `PSCustomObject`, `LASTEXITCODE`, `Resolve-Path`, `ConvertFrom-Json`, `Start-Sleep`, `Where-Object`, `Select-Object` o `throw`. |
 
+## Reinicio total de datos
+
+| ID | Tipo | Estado | Detalle |
+| --- | --- | --- | --- |
+| RESET-ERR-001 | ERR | resuelto | Durante la Fase A5, `up storage-bucket-init` volvió a ejecutar `storage-db-init` mientras Storage ya modificaba el esquema. La primera ejecución del SQL había terminado correctamente, pero la segunda falló en el `GRANT` de la línea 24 con `ERROR: tuple concurrently updated`. PostgreSQL y Storage permanecieron `healthy`; no fue necesario borrar nuevamente los volúmenes. |
+| RESET-MOD-001 | MOD | resuelto | Las guías activas ahora esperan la salud de Storage con `up -d --wait --wait-timeout 120 storage` y crean el bucket con `run --rm --no-deps storage-bucket-init`. La recuperación retira solamente los dos contenedores inicializadores y evita relanzar dependencias. |
+| RESET-VAL-001 | VAL | resuelto | Tras retirar los inicializadores fallidos, `run --rm --no-deps storage-bucket-init` terminó correctamente con `Bucket privado 'kontoraimagenes' preparado correctamente.` |
+| RESET-ERR-002 | ERR | resuelto | La consulta compacta de validación anidó `sh -c`, comillas y `-F "|"`. PowerShell fragmentó los argumentos y produjo `-U: not found` y `psql: option requires an argument: F`. Las consultas Windows ahora invocan `psql` directamente, en comandos separados y sin el delimitador problemático. |
+
 ## Plantilla para nuevos registros
 
 | ID | Tipo | Estado | Detalle |

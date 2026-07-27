@@ -224,11 +224,11 @@ docker compose --env-file infra/.env \
 
 docker compose --env-file infra/.env \
   -f infra/compose.prod.yml \
-  up -d storage
+  up -d --wait --wait-timeout 120 storage
 
 docker compose --env-file infra/.env \
   -f infra/compose.prod.yml \
-  up storage-bucket-init
+  run --rm --no-deps storage-bucket-init
 
 docker compose --env-file infra/.env \
   -f infra/compose.prod.yml \
@@ -241,6 +241,10 @@ docker compose --env-file infra/.env \
 
 `storage-db-init` y `storage-bucket-init` deben terminar con codigo `0`.
 PostgreSQL, Storage y frontend deben quedar `healthy`; backend debe estar `Up`.
+
+No reemplazar `run --rm --no-deps storage-bucket-init` por
+`up storage-bucket-init`: `up` puede relanzar `storage-db-init` mientras
+Storage modifica el esquema y provocar `ERROR: tuple concurrently updated`.
 
 Validar:
 
@@ -397,7 +401,8 @@ No usar `down -v`: elimina los volumenes de PostgreSQL y Storage.
 | Build termina por falta de memoria | Construir backend y frontend por separado; revisar `free -h` y configurar swap controlado si el proveedor lo permite. |
 | Backend no conecta a PostgreSQL | Confirmar `DB_HOST=postgres`, contrasena y health del contenedor. |
 | Storage no inicia | Confirmar que `STORAGE_DATABASE_URL` usa la misma contrasena y que los dos JWT pertenecen al mismo `STORAGE_JWT_SECRET`. |
-| Bucket no existe | Repetir `up storage-bucket-init` y revisar su log; debe salir con codigo `0`. |
+| Bucket no existe | Ejecutar `run --rm --no-deps storage-bucket-init`; debe confirmar la preparación correcta. |
+| `tuple concurrently updated` en `storage-db-init` | No borrar volúmenes. Confirmar PostgreSQL y Storage sanos, retirar solo los inicializadores fallidos y usar `run --rm --no-deps storage-bucket-init`. |
 | Login `403` por Internet | Agregar el origen HTTPS exacto a CORS y recrear solo backend. |
 | Tunnel `502` | Confirmar `http://frontend:8080` y que frontend/cloudflared comparten la red `tunnel`. |
 | Tunnel `1033` | Confirmar replica `Healthy` y que DNS usa el UUID del tunnel actual. |

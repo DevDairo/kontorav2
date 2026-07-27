@@ -42,14 +42,19 @@ No reemplazar una sola clave: ambas deben generarse juntas.
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml config --quiet
 docker compose --env-file infra\.env -f infra\compose.local.yml up -d postgres
-docker compose --env-file infra\.env -f infra\compose.local.yml up -d storage
+docker compose --env-file infra\.env -f infra\compose.local.yml up -d --wait --wait-timeout 120 storage
 docker compose --env-file infra\.env -f infra\compose.local.yml ps -a
-docker compose --env-file infra\.env -f infra\compose.local.yml up storage-bucket-init
+docker compose --env-file infra\.env -f infra\compose.local.yml run --rm --no-deps storage-bucket-init
 docker compose --env-file infra\.env -f infra\compose.local.yml ps -a
 ```
 
 `storage-db-init` y `storage-bucket-init` deben terminar con código `0`.
 `postgres` y `storage` deben aparecer como `healthy`.
+
+No usar `up storage-bucket-init` después de iniciar Storage. Ese comando puede
+volver a ejecutar `storage-db-init` mientras Storage modifica su esquema y
+producir `ERROR: tuple concurrently updated`. `run --rm --no-deps` ejecuta
+únicamente el inicializador idempotente del bucket.
 
 Confirmar el bucket:
 
@@ -142,7 +147,8 @@ la guía del VPS.
 | --- | --- |
 | `403 Invalid Compact JWS` | Generar nuevamente `STORAGE_JWT_SECRET` y `STORAGE_SERVICE_ROLE_KEY` como pareja. |
 | Storage no queda `healthy` | Revisar `storage-db-init`, conexión a PostgreSQL y las dos claves. |
-| Bucket inexistente | Ejecutar otra vez `up storage-bucket-init`. |
+| Bucket inexistente | Ejecutar `run --rm --no-deps storage-bucket-init`. |
+| `tuple concurrently updated` en `storage-db-init` | Confirmar PostgreSQL y Storage sanos, retirar solo los inicializadores fallidos y seguir la recuperación documentada en [Reinicio total](../reinicio-total-datos/README.md#recuperación-si-apareció-tuple-concurrently-updated). |
 | Backend no descarga | Confirmar `http://storage:5000`, bucket y `service_role`. |
 | Evidencia sin binario | Restaurar el volumen correspondiente al mismo respaldo de PostgreSQL. |
 

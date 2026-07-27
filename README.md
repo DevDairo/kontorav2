@@ -330,11 +330,11 @@ docker compose --env-file infra/.env \
 
 docker compose --env-file infra/.env \
   -f infra/compose.prod.yml \
-  up -d storage
+  up -d --wait --wait-timeout 120 storage
 
 docker compose --env-file infra/.env \
   -f infra/compose.prod.yml \
-  up storage-bucket-init
+  run --rm --no-deps storage-bucket-init
 
 docker compose --env-file infra/.env \
   -f infra/compose.prod.yml \

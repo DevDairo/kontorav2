@@ -81,6 +81,18 @@ Todos los comandos de esta guía muestran los nombres predeterminados. Si el
 resultado anterior es diferente, sustituirlos en **todos** los comandos de
 inspección, respaldo y eliminación.
 
+Las llamadas directas a `psql` y `pg_dump` de la variante Windows usan los
+valores locales predeterminados:
+
+```env
+DB_USER=kontora_pos
+DB_NAME=kontora_pos
+```
+
+Si `infra/.env` contiene otros valores, sustituir también `-U kontora_pos` y
+`-d kontora_pos` en esos comandos. Esta forma directa evita que PowerShell
+fragmente las comillas de una orden anidada con `sh -c`.
+
 ---
 
 ## Variante A: Windows local
@@ -130,7 +142,7 @@ docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel
 Respaldar PostgreSQL:
 
 ```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --file=/tmp/kontora_pos_before_reset.dump'
+docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres pg_dump -U kontora_pos -d kontora_pos --format=custom --file=/tmp/kontora_pos_before_reset.dump
 docker cp kontora_pos_postgres_local:/tmp/kontora_pos_before_reset.dump "$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM\kontora_pos.dump"
 docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres rm -f /tmp/kontora_pos_before_reset.dump
 ```
@@ -220,13 +232,53 @@ docker compose --env-file infra\.env -f infra\compose.local.yml ps postgres
 `postgres` debe aparecer como `healthy`. Después:
 
 ```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml up -d storage
-docker compose --env-file infra\.env -f infra\compose.local.yml up storage-bucket-init
+docker compose --env-file infra\.env -f infra\compose.local.yml up -d --wait --wait-timeout 120 storage
 docker compose --env-file infra\.env -f infra\compose.local.yml ps -a
+docker compose --env-file infra\.env -f infra\compose.local.yml run --rm --no-deps storage-bucket-init
 ```
 
 `storage-db-init` y `storage-bucket-init` deben terminar con código `0`, y
 `storage` debe aparecer como `healthy`.
+
+No sustituir el último comando por `up storage-bucket-init`. Después de iniciar
+Storage, `up` puede volver a ejecutar la dependencia transitoria
+`storage-db-init` mientras Storage modifica el esquema `storage`. Esa carrera
+puede terminar con:
+
+```text
+psql:/opt/kontora/init-storage-roles.sql:24:
+ERROR: tuple concurrently updated
+```
+
+`run --rm --no-deps` ejecuta únicamente la creación idempotente del bucket y
+retira su contenedor temporal al finalizar.
+
+#### Recuperación si apareció `tuple concurrently updated`
+
+No borrar nuevamente los volúmenes. Primero confirmar que `postgres` y
+`storage` estén `healthy` y que el log muestre una primera ejecución completa
+de `storage-db-init` antes del error:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml logs --no-color --tail=200 storage-db-init
+docker compose --env-file infra\.env -f infra\compose.local.yml ps -a
+```
+
+Si ambos servicios están sanos y la primera ejecución completó `DO`, los tres
+`ALTER ROLE`, `CREATE SCHEMA`, los cuatro `GRANT` y los tres
+`ALTER DEFAULT PRIVILEGES`, retirar solamente los inicializadores y crear el
+bucket sin dependencias:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml rm -f storage-db-init storage-bucket-init
+docker compose --env-file infra\.env -f infra\compose.local.yml run --rm --no-deps storage-bucket-init
+```
+
+La salida esperada es:
+
+```text
+Bucket privado 'kontoraimagenes' preparado correctamente.
+```
 
 Iniciar el backend para que Flyway cree el esquema de la aplicación y el
 bootstrap cree el gerente:
@@ -379,13 +431,17 @@ docker compose --env-file infra/.env -f infra/compose.prod.yml ps postgres
 `postgres` debe aparecer como `healthy`. Después:
 
 ```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml up -d storage
-docker compose --env-file infra/.env -f infra/compose.prod.yml up storage-bucket-init
+docker compose --env-file infra/.env -f infra/compose.prod.yml up -d --wait --wait-timeout 120 storage
 docker compose --env-file infra/.env -f infra/compose.prod.yml ps -a
+docker compose --env-file infra/.env -f infra/compose.prod.yml run --rm --no-deps storage-bucket-init
 ```
 
 `storage-db-init` y `storage-bucket-init` deben terminar con código `0`, y
 `storage` debe aparecer como `healthy`.
+
+No usar `up storage-bucket-init`: puede relanzar `storage-db-init` y competir
+con las migraciones de Storage. La ejecución con `run --rm --no-deps` evita esa
+carrera.
 
 Iniciar backend y frontend con las imágenes ya preparadas:
 
@@ -408,7 +464,7 @@ incluyen primero Windows y después VPS.
 Windows:
 
 ```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT installed_rank, version, description, success FROM flyway_schema_history ORDER BY installed_rank;"'
+docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -U kontora_pos -d kontora_pos -c "SELECT installed_rank, version, description, success FROM flyway_schema_history ORDER BY installed_rank;"
 ```
 
 VPS:
@@ -424,8 +480,8 @@ Todas las filas deben mostrar `success = t`.
 Windows:
 
 ```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT id, name, public, file_size_limit, allowed_mime_types FROM storage.buckets;"'
-docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) AS objetos_almacenados FROM storage.objects;"'
+docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X --csv -U kontora_pos -d kontora_pos -c "SELECT id, name, public, file_size_limit, allowed_mime_types FROM storage.buckets;"
+docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -A -t -U kontora_pos -d kontora_pos -c "SELECT count(*) FROM storage.objects;"
 ```
 
 VPS:
@@ -446,7 +502,7 @@ Resultado esperado:
 Windows:
 
 ```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT u.nombre_usuario, u.estado AS estado_usuario, r.nombre_rol, c.estado AS estado_credencial FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol JOIN credenciales_usuario c ON c.id_usuario = u.id_usuario;"'
+docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -U kontora_pos -d kontora_pos -c "SELECT u.nombre_usuario, u.estado AS estado_usuario, r.nombre_rol, c.estado AS estado_credencial FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol JOIN credenciales_usuario c ON c.id_usuario = u.id_usuario;"
 ```
 
 VPS:
@@ -577,7 +633,9 @@ El reinicio se considera completo solamente cuando:
 | `volume is in use` | Ejecutar `docker compose ... down`, comprobar `docker ps -a --filter volume=NOMBRE` y no forzar la eliminación hasta identificar el contenedor. |
 | Flyway falla | Revisar `docker compose ... logs --tail=200 backend`; no editar una migración ya versionada. |
 | Storage no queda `healthy` | Revisar `storage-db-init`, `STORAGE_DATABASE_URL` y que las dos claves Storage pertenezcan a la misma pareja. |
-| El bucket no existe | Ejecutar nuevamente `up storage-bucket-init` y exigir salida con código `0`. |
+| `tuple concurrently updated` en `storage-db-init` | No borrar volúmenes. Confirmar PostgreSQL y Storage sanos, retirar solo los dos inicializadores y ejecutar `run --rm --no-deps storage-bucket-init` según la recuperación de la Fase A5. |
+| PowerShell muestra `-U: not found` o `psql: option requires an argument: F` | La orden anidada con `sh -c` fue fragmentada. Usar las llamadas directas a `psql` de esta guía, sin `sh -c` ni `-F "|"`. |
+| El bucket no existe | Ejecutar `run --rm --no-deps storage-bucket-init` y exigir el mensaje de creación correcta. |
 | Hay objetos en `storage.objects` | Se está usando una base anterior o algún cliente escribió durante el reinicio; detenerse y comprobar los nombres de los volúmenes. |
 | No se crea el gerente | Confirmar que `usuarios` está vacía, el bootstrap está activo y las cuatro variables `BOOTSTRAP_MANAGER_*` son válidas. |
 | El gerente ya existe pero la contraseña no funciona | Las variables bootstrap no actualizan usuarios existentes; usar la gestión de usuarios o repetir el reinicio con la base realmente vacía. |

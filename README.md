@@ -424,6 +424,7 @@ docker compose --env-file infra/.env -f infra/compose.prod.yml up -d --no-deps -
 
 ## Datos, respaldo y recuperacion
 
+- [Reinicio total de PostgreSQL, bucket y gerente inicial](docs/reinicio-total-datos/README.md)
 - [PostgreSQL y backend](docs/migracion-infraestructura/01-fase-postgresql-backend.md)
 - [Storage autoalojado](docs/migracion-infraestructura/02-fase-supabase-storage-local.md)
 - [Frontend Nginx](docs/migracion-infraestructura/03-fase-frontend-nginx.md)

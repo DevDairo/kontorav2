@@ -16,9 +16,15 @@ Al abrir un soporte, la interfaz desplaza suavemente su vista previa al area vis
 ## Funcionalidades
 
 - Carga multipart de imagenes o PDF autorizados.
+- Conversion local de fotografias HEIC/HEIF a JPEG antes de transmitirlas. El
+  conversor se carga en el navegador solo cuando la firma o el tipo del archivo
+  indican ese formato.
 - Compresion de imagenes en backend y almacenamiento de metadata original y comprimida.
 - Normalizacion de orientacion EXIF antes de comprimir fotografias JPEG tomadas
   desde dispositivos moviles.
+- Reconocimiento en backend por firma binaria de JPEG, PNG, WEBP, HEIC/HEIF,
+  AVIF, GIF, BMP, TIFF y PDF. Esto corrige el MIME cuando el sistema operativo
+  envia una fotografia como `application/octet-stream`.
 - Consulta de metadata por el registro que respalda la evidencia.
 - Vista previa responsive de imagenes y PDF para usuarios autorizados, con selector cuando un registro conserva varios soportes.
 - Cuando existe un solo soporte, el visor ocupa todo el ancho disponible. La imagen conserva sus dimensiones naturales, se centra sin recorte y solo se reduce si excede el espacio disponible; con varios soportes, el selector se presenta como una franja horizontal.
@@ -38,6 +44,18 @@ Al abrir un soporte, la interfaz desplaza suavemente su vista previa al area vis
 
 - El frontend nunca recibe claves de Storage ni sube directamente al bucket.
 - El bucket privado activo es `kontoraimagenes`; solo el backend usa la clave `service_role`.
+- El limite tecnico es de 20 MiB por archivo en Storage. Spring admite archivos
+  de 20 MB y solicitudes multipart de 21 MB; Nginx admite 22 MiB para cubrir el
+  formulario y sus encabezados.
+- Una fotografia HEIC/HEIF se convierte a JPEG con un lado maximo de 3000
+  pixeles antes de enviarla. Si el navegador no puede convertirla y el original
+  no supera 20 MiB, se envia sin transformar; el backend reconoce su firma y
+  corrige el tipo MIME para que Storage la acepte. JPEG, PNG y los demas
+  formatos compatibles conservan el flujo existente del backend.
+- JPEG, PNG y demas tipos conocidos no se leen ni transforman en el navegador
+  antes de crear el multipart. La inspeccion binaria se reserva a archivos sin
+  tipo ni extension reconocibles y nunca impide enviar el original si el
+  proveedor de camara no permite esa lectura inmediata.
 - Storage no se publica en Internet. Los archivos se guardan en un volumen Docker y la metadata vive en el esquema PostgreSQL `storage`.
 - La vista previa solicita el archivo al endpoint autenticado del backend, crea una URL temporal en el navegador y la revoca al cambiar de soporte o cerrar el visor.
 - El backend aplica fisicamente a los pixeles las orientaciones EXIF `1` a `8`
@@ -51,6 +69,12 @@ Al abrir un soporte, la interfaz desplaza suavemente su vista previa al area vis
 - Cada archivo se relaciona con un unico registro operativo; un pago puede conservar varios archivos de evidencia para trazabilidad.
 - La interfaz no diferencia visualmente entre un archivo inexistente y una descarga que no puede completarse; en ambos casos informa que la evidencia no esta disponible. El backend mantiene el estado tecnico real para trazabilidad y diagnostico.
 - El ajuste de una evidencia de transferencia se registra en auditoria.
+- La normalizacion es transversal: los cinco endpoints de carga comparten el
+  mismo preparador y no modifica obligatoriedad, permisos, orden de registro ni
+  validaciones externas de cada modulo.
+- En los formularios que registran primero la operacion financiera, el archivo
+  se captura directamente del control antes del primer `await`; no depende
+  exclusivamente de que React haya terminado de actualizar su estado.
 
 ## Endpoints principales
 

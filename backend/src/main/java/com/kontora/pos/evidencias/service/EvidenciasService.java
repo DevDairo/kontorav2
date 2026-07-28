@@ -36,6 +36,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.Iterator;
 import java.util.Locale;
@@ -60,11 +61,39 @@ public class EvidenciasService {
     private static final String FORMATO_PNG = "png";
     private static final String FORMATO_WEBP = "webp";
     private static final String FORMATO_PDF = "pdf";
+    private static final String FORMATO_HEIC = "heic";
+    private static final String FORMATO_HEIF = "heif";
+    private static final String FORMATO_AVIF = "avif";
+    private static final String FORMATO_GIF = "gif";
+    private static final String FORMATO_BMP = "bmp";
+    private static final String FORMATO_TIFF = "tiff";
     private static final String FORMATO_OTRO = "otro";
     private static final String CONTENT_TYPE_JPEG = "image/jpeg";
+    private static final String CONTENT_TYPE_PNG = "image/png";
+    private static final String CONTENT_TYPE_WEBP = "image/webp";
+    private static final String CONTENT_TYPE_HEIC = "image/heic";
+    private static final String CONTENT_TYPE_HEIF = "image/heif";
+    private static final String CONTENT_TYPE_AVIF = "image/avif";
+    private static final String CONTENT_TYPE_GIF = "image/gif";
+    private static final String CONTENT_TYPE_BMP = "image/bmp";
+    private static final String CONTENT_TYPE_TIFF = "image/tiff";
     private static final String CONTENT_TYPE_PDF = "application/pdf";
     private static final String CONTENT_TYPE_OCTET_STREAM = "application/octet-stream";
     private static final Set<String> FORMATOS_IMAGEN_COMPRESIBLES = Set.of(FORMATO_JPG, FORMATO_JPEG, FORMATO_PNG);
+    private static final Set<String> FORMATOS_IMAGEN_MOVIL = Set.of(
+            FORMATO_JPG,
+            FORMATO_JPEG,
+            FORMATO_PNG,
+            FORMATO_WEBP,
+            FORMATO_HEIC,
+            FORMATO_HEIF,
+            FORMATO_AVIF,
+            FORMATO_GIF,
+            FORMATO_BMP,
+            FORMATO_TIFF);
+    private static final Set<String> MARCAS_HEIC = Set.of(
+            "heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs");
+    private static final Set<String> MARCAS_AVIF = Set.of("avif", "avis");
 
     private final ArchivoEvidenciaRepository archivoEvidenciaRepository;
     private final PagoVentaRepository pagoVentaRepository;
@@ -261,7 +290,7 @@ public class EvidenciasService {
             Consumer<ArchivoEvidencia> asignarRelacion) {
         Usuario usuarioSubida = obtenerUsuario(principalUsuario.idUsuario());
         ArchivoProcesado archivoProcesado = procesarArchivo(archivo);
-        String rutaArchivo = construirRutaArchivo(carpeta, idProceso, archivoProcesado.formatoArchivo());
+        String rutaArchivo = construirRutaArchivo(carpeta, idProceso, archivoProcesado.extensionAlmacenamiento());
         ArchivoAlmacenado archivoAlmacenado = storageClient.subir(
                 rutaArchivo,
                 archivoProcesado.contentType(),
@@ -297,7 +326,7 @@ public class EvidenciasService {
 
         String nombreOriginal = normalizarNombreArchivo(archivo.getOriginalFilename());
         String contentTypeOriginal = contentTypeSeguro(archivo.getContentType());
-        String formato = formatoArchivo(nombreOriginal, contentTypeOriginal);
+        String formato = detectarFormatoArchivo(nombreOriginal, contentTypeOriginal, contenidoOriginal);
         int tamanoOriginalKb = calcularTamanoKb(contenidoOriginal.length);
 
         if (FORMATOS_IMAGEN_COMPRESIBLES.contains(formato)) {
@@ -306,6 +335,7 @@ public class EvidenciasService {
                     reemplazarExtension(nombreOriginal, FORMATO_JPG),
                     TIPO_IMAGEN,
                     FORMATO_JPG,
+                    FORMATO_JPG,
                     CONTENT_TYPE_JPEG,
                     contenidoComprimido,
                     tamanoOriginalKb,
@@ -313,12 +343,13 @@ public class EvidenciasService {
                     true);
         }
 
-        if (FORMATO_WEBP.equals(formato) || contentTypeOriginal.startsWith("image/")) {
+        if (FORMATOS_IMAGEN_MOVIL.contains(formato) || contentTypeOriginal.startsWith("image/")) {
             return new ArchivoProcesado(
                     nombreOriginal,
                     TIPO_IMAGEN,
                     FORMATO_WEBP.equals(formato) ? FORMATO_WEBP : FORMATO_OTRO,
-                    contentTypeOriginal,
+                    extensionAlmacenamiento(formato, nombreOriginal),
+                    contentTypeImagenSeguro(formato, contentTypeOriginal),
                     contenidoOriginal,
                     tamanoOriginalKb,
                     null,
@@ -329,6 +360,7 @@ public class EvidenciasService {
             return new ArchivoProcesado(
                     nombreOriginal,
                     TIPO_PDF,
+                    FORMATO_PDF,
                     FORMATO_PDF,
                     CONTENT_TYPE_PDF,
                     contenidoOriginal,
@@ -341,6 +373,7 @@ public class EvidenciasService {
                 nombreOriginal,
                 TIPO_OTRO,
                 FORMATO_OTRO,
+                extensionAlmacenamiento(formato, nombreOriginal),
                 contentTypeOriginal,
                 contenidoOriginal,
                 tamanoOriginalKb,
@@ -516,19 +549,133 @@ public class EvidenciasService {
                 : contentType.toLowerCase(Locale.ROOT);
     }
 
-    private String formatoArchivo(String nombreArchivo, String contentType) {
+    private String detectarFormatoArchivo(String nombreArchivo, String contentType, byte[] contenido) {
+        String formatoPorFirma = detectarFormatoPorFirma(contenido);
+        if (!FORMATO_OTRO.equals(formatoPorFirma)) {
+            return formatoPorFirma;
+        }
+
         String extension = extension(nombreArchivo);
         if (FORMATO_JPG.equals(extension) || FORMATO_JPEG.equals(extension) || FORMATO_PNG.equals(extension)
-                || FORMATO_WEBP.equals(extension) || FORMATO_PDF.equals(extension)) {
+                || FORMATO_WEBP.equals(extension) || FORMATO_PDF.equals(extension)
+                || FORMATO_HEIC.equals(extension) || FORMATO_HEIF.equals(extension) || "hif".equals(extension)
+                || FORMATO_AVIF.equals(extension) || FORMATO_GIF.equals(extension) || FORMATO_BMP.equals(extension)
+                || FORMATO_TIFF.equals(extension) || "tif".equals(extension)) {
+            if ("hif".equals(extension)) {
+                return FORMATO_HEIF;
+            }
+            if ("tif".equals(extension)) {
+                return FORMATO_TIFF;
+            }
             return extension;
         }
         return switch (contentType) {
-            case "image/jpeg" -> FORMATO_JPG;
-            case "image/png" -> FORMATO_PNG;
-            case "image/webp" -> FORMATO_WEBP;
+            case CONTENT_TYPE_JPEG -> FORMATO_JPG;
+            case CONTENT_TYPE_PNG -> FORMATO_PNG;
+            case CONTENT_TYPE_WEBP -> FORMATO_WEBP;
+            case CONTENT_TYPE_HEIC, "image/heic-sequence" -> FORMATO_HEIC;
+            case CONTENT_TYPE_HEIF, "image/heif-sequence" -> FORMATO_HEIF;
+            case CONTENT_TYPE_AVIF -> FORMATO_AVIF;
+            case CONTENT_TYPE_GIF -> FORMATO_GIF;
+            case CONTENT_TYPE_BMP, "image/x-ms-bmp" -> FORMATO_BMP;
+            case CONTENT_TYPE_TIFF -> FORMATO_TIFF;
             case CONTENT_TYPE_PDF -> FORMATO_PDF;
             default -> FORMATO_OTRO;
         };
+    }
+
+    private String detectarFormatoPorFirma(byte[] contenido) {
+        if (empiezaCon(contenido, 0xFF, 0xD8, 0xFF)) {
+            return FORMATO_JPG;
+        }
+        if (empiezaCon(contenido, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)) {
+            return FORMATO_PNG;
+        }
+        if (empiezaConAscii(contenido, 0, "%PDF-")) {
+            return FORMATO_PDF;
+        }
+        if (empiezaConAscii(contenido, 0, "GIF87a") || empiezaConAscii(contenido, 0, "GIF89a")) {
+            return FORMATO_GIF;
+        }
+        if (empiezaConAscii(contenido, 0, "BM")) {
+            return FORMATO_BMP;
+        }
+        if ((empiezaConAscii(contenido, 0, "II") && empiezaConDesde(contenido, 2, 0x2A, 0x00))
+                || (empiezaConAscii(contenido, 0, "MM") && empiezaConDesde(contenido, 2, 0x00, 0x2A))) {
+            return FORMATO_TIFF;
+        }
+        if (empiezaConAscii(contenido, 0, "RIFF") && empiezaConAscii(contenido, 8, "WEBP")) {
+            return FORMATO_WEBP;
+        }
+        return detectarFormatoIsoBaseMedia(contenido);
+    }
+
+    private String detectarFormatoIsoBaseMedia(byte[] contenido) {
+        if (!empiezaConAscii(contenido, 4, "ftyp") || contenido.length < 12) {
+            return FORMATO_OTRO;
+        }
+
+        boolean marcaHeifGenerica = false;
+        for (int indice = 8; indice + 4 <= Math.min(contenido.length, 64); indice += 4) {
+            if (indice == 12) {
+                continue;
+            }
+            String marca = new String(contenido, indice, 4, StandardCharsets.US_ASCII);
+            if (MARCAS_AVIF.contains(marca)) {
+                return FORMATO_AVIF;
+            }
+            if (MARCAS_HEIC.contains(marca)) {
+                return FORMATO_HEIC;
+            }
+            if ("mif1".equals(marca) || "msf1".equals(marca)) {
+                marcaHeifGenerica = true;
+            }
+        }
+        return marcaHeifGenerica ? FORMATO_HEIF : FORMATO_OTRO;
+    }
+
+    private String contentTypeImagenSeguro(String formato, String contentTypeOriginal) {
+        return switch (formato) {
+            case FORMATO_JPG, FORMATO_JPEG -> CONTENT_TYPE_JPEG;
+            case FORMATO_PNG -> CONTENT_TYPE_PNG;
+            case FORMATO_WEBP -> CONTENT_TYPE_WEBP;
+            case FORMATO_HEIC -> CONTENT_TYPE_HEIC;
+            case FORMATO_HEIF -> CONTENT_TYPE_HEIF;
+            case FORMATO_AVIF -> CONTENT_TYPE_AVIF;
+            case FORMATO_GIF -> CONTENT_TYPE_GIF;
+            case FORMATO_BMP -> CONTENT_TYPE_BMP;
+            case FORMATO_TIFF -> CONTENT_TYPE_TIFF;
+            default -> contentTypeOriginal;
+        };
+    }
+
+    private boolean empiezaCon(byte[] contenido, int... bytesEsperados) {
+        return empiezaConDesde(contenido, 0, bytesEsperados);
+    }
+
+    private boolean empiezaConDesde(byte[] contenido, int inicio, int... bytesEsperados) {
+        if (inicio < 0 || contenido.length < inicio + bytesEsperados.length) {
+            return false;
+        }
+        for (int indice = 0; indice < bytesEsperados.length; indice++) {
+            if ((contenido[inicio + indice] & 0xFF) != bytesEsperados[indice]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean empiezaConAscii(byte[] contenido, int inicio, String valor) {
+        byte[] bytesEsperados = valor.getBytes(StandardCharsets.US_ASCII);
+        if (inicio < 0 || contenido.length < inicio + bytesEsperados.length) {
+            return false;
+        }
+        for (int indice = 0; indice < bytesEsperados.length; indice++) {
+            if (contenido[inicio + indice] != bytesEsperados[indice]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String extension(String nombreArchivo) {
@@ -545,6 +692,14 @@ public class EvidenciasService {
             return nombreArchivo + "." + nuevaExtension;
         }
         return nombreArchivo.substring(0, index + 1) + nuevaExtension;
+    }
+
+    private String extensionAlmacenamiento(String formatoDetectado, String nombreArchivo) {
+        if (!FORMATO_OTRO.equals(formatoDetectado)) {
+            return formatoDetectado;
+        }
+        String extension = extension(nombreArchivo);
+        return FORMATO_OTRO.equals(extension) ? "bin" : extension;
     }
 
     private ArchivoEvidenciaResponse toResponse(ArchivoEvidencia evidencia) {
@@ -574,6 +729,7 @@ public class EvidenciasService {
             String nombreArchivo,
             String tipoArchivo,
             String formatoArchivo,
+            String extensionAlmacenamiento,
             String contentType,
             byte[] contenido,
             Integer tamanoOriginalKb,

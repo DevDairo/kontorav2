@@ -97,12 +97,14 @@ export function DepositoPanel({ token }: DepositoPanelProps) {
     event.preventDefault();
     const valor = Number(valorConsignacion);
     const observacion = observacionConsignacion.trim();
+    const evidenciaSeleccionada =
+      evidenciaConsignacionRef.current?.files?.[0] ?? evidenciaConsignacion;
 
     if (!Number.isFinite(valor) || valor <= 0) {
       setActionMessage("Ingresa un valor de consignacion mayor que cero.");
       return;
     }
-    if (!evidenciaConsignacion) {
+    if (!evidenciaSeleccionada) {
       setActionMessage("Adjunta la evidencia de la consignacion antes de registrarla.");
       return;
     }
@@ -114,7 +116,7 @@ export function DepositoPanel({ token }: DepositoPanelProps) {
     setActionMessage(null);
     setEvidenceMessage(null);
     setPendingAction({
-      evidencia: evidenciaConsignacion,
+      evidencia: evidenciaSeleccionada,
       kind: "consignacion",
       observacion,
       valor,
@@ -125,6 +127,8 @@ export function DepositoPanel({ token }: DepositoPanelProps) {
     event.preventDefault();
     const valor = Number(valorServicio);
     const descripcion = descripcionServicio.trim();
+    const evidenciaSeleccionada =
+      evidenciaServicioRef.current?.files?.[0] ?? evidenciaServicio;
 
     if (!idTipoServicio) {
       setActionMessage("Selecciona el tipo de servicio pagado.");
@@ -134,7 +138,7 @@ export function DepositoPanel({ token }: DepositoPanelProps) {
       setActionMessage("Ingresa un valor de pago mayor que cero.");
       return;
     }
-    if (!evidenciaServicio) {
+    if (!evidenciaSeleccionada) {
       setActionMessage("Adjunta la evidencia del pago de servicio antes de registrarlo.");
       return;
     }
@@ -147,7 +151,7 @@ export function DepositoPanel({ token }: DepositoPanelProps) {
     setEvidenceMessage(null);
     setPendingAction({
       descripcion,
-      evidencia: evidenciaServicio,
+      evidencia: evidenciaSeleccionada,
       idTipoServicio,
       kind: "servicio",
       valor,

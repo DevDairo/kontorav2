@@ -182,6 +182,7 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
   const [transferenciaParcial, setTransferenciaParcial] = useState("");
   const [valorRecibido, setValorRecibido] = useState("");
   const [evidenciaTransferencia, setEvidenciaTransferencia] = useState<File | null>(null);
+  const evidenciaTransferenciaInputRef = useRef<HTMLInputElement>(null);
   const fechaCatalogos = useMemo(() => todayLocalDate(), []);
   const canCancelSales = role === "administrador" || role === "gerente";
   const [ventasJornada, setVentasJornada] = useState<ConsultaVenta[]>([]);
@@ -496,6 +497,9 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
       setLastEvidence(evidencia);
       setEvidenceMessage("Comprobante de transferencia adjunto correctamente.");
       setEvidenciaTransferencia(null);
+      if (evidenciaTransferenciaInputRef.current) {
+        evidenciaTransferenciaInputRef.current.value = "";
+      }
     } catch (error) {
       setEvidenceMessage(`Venta registrada; evidencia pendiente: ${messageFor(error)}`);
     } finally {
@@ -513,6 +517,8 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const evidenciaSeleccionada =
+      evidenciaTransferenciaInputRef.current?.files?.[0] ?? evidenciaTransferencia;
     setSubmitMessage(null);
     setEvidenceMessage(null);
     setLastSale(null);
@@ -544,7 +550,7 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
       return;
     }
 
-    if (evidenciaTransferencia && !hasTransferPayment) {
+    if (evidenciaSeleccionada && !hasTransferPayment) {
       setSubmitMessage("Adjunta evidencia solo cuando la venta tenga pago por transferencia.");
       return;
     }
@@ -565,8 +571,8 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
         void loadVentasAnulables();
       }
 
-      if (evidenciaTransferencia) {
-        await uploadEvidenceForSale(response, evidenciaTransferencia);
+      if (evidenciaSeleccionada) {
+        await uploadEvidenceForSale(response, evidenciaSeleccionada);
       }
     } catch (error) {
       setSubmitMessage(messageFor(error));
@@ -887,12 +893,16 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
                 <Paperclip size={18} strokeWidth={2.2} />
                 <input
                   accept="image/*,.pdf"
+                  name="evidenciaTransferencia"
+                  ref={evidenciaTransferenciaInputRef}
                   type="file"
                   onChange={(event) => setEvidenciaTransferencia(event.target.files?.[0] ?? null)}
                 />
               </div>
               <small className="field-hint">
-                El comprobante se adjunta despues de registrar la venta.
+                {evidenciaTransferencia
+                  ? `Listo para adjuntar: ${evidenciaTransferencia.name}`
+                  : "El comprobante se adjunta despues de registrar la venta."}
               </small>
             </label>
           ) : null}

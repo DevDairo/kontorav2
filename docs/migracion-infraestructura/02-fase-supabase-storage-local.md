@@ -67,7 +67,7 @@ El resultado esperado es:
 ```text
 id: kontoraimagenes
 public: false
-file_size_limit: 13631488
+file_size_limit: 20971520
 allowed_mime_types: image/*, application/pdf
 ```
 
@@ -139,7 +139,7 @@ evidencia conocida y comprobar su hash.
 
 ## Límites configurados
 
-- tamaño máximo: 13 MB;
+- tamaño máximo: 20 MiB;
 - tipos: imágenes y PDF;
 - backend de archivos local;
 - transformaciones desactivadas;

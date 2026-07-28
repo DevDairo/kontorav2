@@ -230,6 +230,8 @@ export function GastosPanel({ token, role }: GastosPanelProps) {
     event.preventDefault();
     const value = Number(valorGasto);
     const descripcion = descripcionGasto.trim();
+    const archivoSeleccionado =
+      registroEvidenceInputRef.current?.files?.[0] ?? archivoEvidenciaGasto;
 
     if (!Number.isFinite(value) || value <= 0 || !descripcion) {
       setActionMessage("Ingresa un valor de gasto mayor a cero y una descripcion.");
@@ -245,14 +247,14 @@ export function GastosPanel({ token, role }: GastosPanelProps) {
       setValorGasto("");
       setDescripcionGasto("");
 
-      if (!archivoEvidenciaGasto) {
+      if (!archivoSeleccionado) {
         setActionMessage("Gasto de caja registrado.");
         return;
       }
 
       setGastoEvidenciaSeleccionado(gasto);
       try {
-        await cargarEvidenciaGastoCaja(token, gasto.idGastoCaja, archivoEvidenciaGasto);
+        await cargarEvidenciaGastoCaja(token, gasto.idGastoCaja, archivoSeleccionado);
         setArchivoEvidenciaGasto(null);
         if (registroEvidenceInputRef.current) {
           registroEvidenceInputRef.current.value = "";

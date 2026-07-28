@@ -191,6 +191,41 @@ class EvidenciasIntegrationTest {
     }
 
     @Test
+    void cargaHeicAunqueElCelularLoEnvieComoOctetStream() throws Exception {
+        crearCajaAbierta();
+        UUID idPagoTransferencia = crearVentaConPago(
+                idUsuarioVendedor,
+                "transferencia",
+                "pendiente",
+                new BigDecimal("15000.00"));
+        String tokenVendedor = iniciarSesion(USUARIO_VENDEDOR);
+        byte[] contenidoHeic = heicMinimo();
+
+        mockMvc.perform(multipart("/api/evidencias/pagos-venta/{idPagoVenta}", idPagoTransferencia)
+                        .file(new MockMultipartFile(
+                                "archivo",
+                                "foto-celular.bin",
+                                MediaType.APPLICATION_OCTET_STREAM_VALUE,
+                                contenidoHeic))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenVendedor)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.tipoArchivo").value("imagen"))
+                .andExpect(jsonPath("$.formatoArchivo").value("otro"))
+                .andExpect(jsonPath("$.fueComprimido").value(false));
+
+        ArgumentCaptor<String> rutaCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<byte[]> contenidoCaptor = ArgumentCaptor.forClass(byte[].class);
+        verify(storageClient).subir(
+                rutaCaptor.capture(),
+                eq("image/heic"),
+                contenidoCaptor.capture());
+        assertThat(rutaCaptor.getValue())
+                .startsWith("pagos-venta/" + idPagoTransferencia + "/")
+                .endsWith(".heic");
+        assertThat(contenidoCaptor.getValue()).isEqualTo(contenidoHeic);
+    }
+
+    @Test
     void gerenteAdjuntaAjusteDeTransferenciaYConservaSoportesAnteriores() throws Exception {
         crearCajaAbierta();
         UUID idPagoTransferencia = crearVentaConPago(idUsuarioVendedor, "transferencia", "pendiente", new BigDecimal("15000.00"));
@@ -590,6 +625,17 @@ class EvidenciasIntegrationTest {
                 nombreArchivo,
                 MediaType.APPLICATION_PDF_VALUE,
                 "%PDF-1.4\n% evidencia test\n".getBytes(StandardCharsets.UTF_8));
+    }
+
+    private byte[] heicMinimo() {
+        return new byte[]{
+                0, 0, 0, 24,
+                'f', 't', 'y', 'p',
+                'h', 'e', 'i', 'c',
+                0, 0, 0, 0,
+                'h', 'e', 'i', 'c',
+                'm', 'i', 'f', '1'
+        };
     }
 
     private void limpiarDatosDePrueba() {

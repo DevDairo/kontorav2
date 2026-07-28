@@ -30,6 +30,8 @@ locales y publicos respondieron correctamente.
 | Modulo unificado | La entrada independiente de Evidencias se retiro. Gastos, consignaciones y servicios se gestionan en `/consultas`; comprobantes de venta en `/transferencias`. | [Evidencias integradas](./09-evidencias.md) |
 | Vista previa | Imagenes y PDF se obtienen por la API autenticada. La imagen conserva proporcion y dimensiones naturales, se centra y solo se reduce si no cabe. | [Evidencias integradas](./09-evidencias.md) |
 | Orientacion movil | El backend aplica la orientacion EXIF antes de comprimir. Vista previa y descarga reciben el mismo archivo ya corregido. | [Evidencias integradas](./09-evidencias.md) |
+| Formatos moviles | El frontend convierte HEIC/HEIF a JPEG y el backend reconoce firmas de formatos fotograficos aunque el celular informe un MIME generico. | [Evidencias integradas](./09-evidencias.md) |
+| Limite de carga | Frontend, Spring, Nginx y Storage quedan alineados para transportar y guardar evidencias de hasta 20 MB/MiB con margen multipart. | [Evidencias integradas](./09-evidencias.md) |
 | Navegacion al visor | Al elegir un soporte, la pagina desplaza suavemente su vista previa al area visible. | [Evidencias integradas](./09-evidencias.md) |
 | Transferencias | Pendientes, validadas y rechazadas conservan visor, descarga y soportes historicos segun el rol. | [Transferencias](./10-transferencias.md) |
 | Lenguaje operativo | La interfaz usa `Sistema` y mensajes funcionales; no expone nombres de API ni referencias RF al usuario. | [Consultas y evidencias](./11-consultas.md) |
@@ -42,6 +44,15 @@ La correccion de orientacion fue validada con 11 pruebas exitosas. Tres pruebas
 unitarias recorren las ocho orientaciones EXIF y la prueba de integracion
 confirma que una matriz JPEG horizontal con EXIF `6` llega a Storage como una
 imagen vertical.
+
+La normalizacion movil se implementa una sola vez en el servicio compartido por
+ventas, gastos, consignaciones, pagos de servicios y ajustes. No cambia las
+reglas de negocio de esos modulos. La compilacion del frontend fue validada y
+`EvidenciasIntegrationTest` finalizo con 9 pruebas, 0 fallos y 0 errores. La
+recreacion controlada dejo backend, frontend y Storage operativos; el bucket
+privado confirmo un limite de `20971520` bytes. La carga desde Android fue
+validada con una fotografia real despues de asegurar que el frontend emitiera
+el multipart de evidencia.
 
 ## Inventario
 

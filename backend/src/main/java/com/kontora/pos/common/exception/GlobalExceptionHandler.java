@@ -30,7 +30,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException exception) {
         return buildResponse(
                 HttpStatus.PAYLOAD_TOO_LARGE,
-                "La evidencia supera el limite de 12 MB. Toma una foto con menor resolucion o selecciona otro archivo.");
+                "La evidencia supera el limite de 20 MB. Toma una foto con menor resolucion o selecciona otro archivo.");
     }
 
     private ResponseEntity<ApiErrorResponse> buildResponse(HttpStatus status, String message) {
@@ -38,4 +38,3 @@ public class GlobalExceptionHandler {
                 .body(new ApiErrorResponse(message, status.value(), OffsetDateTime.now()));
     }
 }
-

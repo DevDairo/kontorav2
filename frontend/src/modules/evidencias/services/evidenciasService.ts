@@ -1,5 +1,6 @@
 import { ApiClientError, apiClient } from "../../../shared/services/apiClient";
 import type { ArchivoEvidenciaResponse } from "../types";
+import { prepararArchivoEvidencia } from "../utils/prepararArchivoEvidencia";
 
 export function messageForEvidenceDownload(error: unknown) {
   if (error instanceof ApiClientError && (error.status === 401 || error.status === 404)) {
@@ -13,57 +14,48 @@ export function messageForEvidenceDownload(error: unknown) {
   return error instanceof Error ? error.message : "No fue posible descargar la evidencia.";
 }
 
-export function cargarEvidenciaPagoVenta(token: string, idPagoVenta: string, archivo: File) {
+async function crearFormularioEvidencia(archivo: File) {
   const formData = new FormData();
-  formData.append("archivo", archivo);
+  formData.append("archivo", await prepararArchivoEvidencia(archivo));
+  return formData;
+}
 
+export async function cargarEvidenciaPagoVenta(token: string, idPagoVenta: string, archivo: File) {
   return apiClient.post<ArchivoEvidenciaResponse>(
     `/evidencias/pagos-venta/${encodeURIComponent(idPagoVenta)}`,
-    formData,
+    await crearFormularioEvidencia(archivo),
     { token },
   );
 }
 
-export function cargarAjusteEvidenciaPagoVenta(token: string, idPagoVenta: string, archivo: File) {
-  const formData = new FormData();
-  formData.append("archivo", archivo);
-
+export async function cargarAjusteEvidenciaPagoVenta(token: string, idPagoVenta: string, archivo: File) {
   return apiClient.post<ArchivoEvidenciaResponse>(
     `/evidencias/pagos-venta/${encodeURIComponent(idPagoVenta)}/ajustes`,
-    formData,
+    await crearFormularioEvidencia(archivo),
     { token },
   );
 }
 
-export function cargarEvidenciaGastoCaja(token: string, idGastoCaja: string, archivo: File) {
-  const formData = new FormData();
-  formData.append("archivo", archivo);
-
+export async function cargarEvidenciaGastoCaja(token: string, idGastoCaja: string, archivo: File) {
   return apiClient.post<ArchivoEvidenciaResponse>(
     `/evidencias/gastos-caja/${encodeURIComponent(idGastoCaja)}`,
-    formData,
+    await crearFormularioEvidencia(archivo),
     { token },
   );
 }
 
-export function cargarEvidenciaConsignacionBancaria(token: string, idConsignacionBancaria: string, archivo: File) {
-  const formData = new FormData();
-  formData.append("archivo", archivo);
-
+export async function cargarEvidenciaConsignacionBancaria(token: string, idConsignacionBancaria: string, archivo: File) {
   return apiClient.post<ArchivoEvidenciaResponse>(
     `/evidencias/consignaciones-bancarias/${encodeURIComponent(idConsignacionBancaria)}`,
-    formData,
+    await crearFormularioEvidencia(archivo),
     { token },
   );
 }
 
-export function cargarEvidenciaPagoServicio(token: string, idPagoServicio: string, archivo: File) {
-  const formData = new FormData();
-  formData.append("archivo", archivo);
-
+export async function cargarEvidenciaPagoServicio(token: string, idPagoServicio: string, archivo: File) {
   return apiClient.post<ArchivoEvidenciaResponse>(
     `/evidencias/pagos-servicios/${encodeURIComponent(idPagoServicio)}`,
-    formData,
+    await crearFormularioEvidencia(archivo),
     { token },
   );
 }

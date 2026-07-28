@@ -1,0 +1,145 @@
+name: kontora_ops_local
+
+services:
+  docker-api-proxy:
+    image: ${OPS_DOCKER_PROXY_IMAGE:-ghcr.io/tecnativa/docker-socket-proxy:v0.4.2}
+    container_name: kontora_ops_docker_api_local
+    restart: unless-stopped
+    environment:
+      AUTH: "0"
+      BUILD: "0"
+      COMMIT: "0"
+      CONFIGS: "0"
+      CONTAINERS: "1"
+      DISTRIBUTION: "0"
+      EVENTS: "0"
+      EXEC: "0"
+      GRPC: "0"
+      IMAGES: "0"
+      INFO: "0"
+      NETWORKS: "0"
+      NODES: "0"
+      PING: "1"
+      PLUGINS: "0"
+      POST: "0"
+      SECRETS: "0"
+      SERVICES: "0"
+      SESSION: "0"
+      SWARM: "0"
+      SYSTEM: "0"
+      TASKS: "0"
+      VERSION: "1"
+      VOLUMES: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - docker_readonly
+
+  ops-panel:
+    build:
+      context: ../../ops-panel
+      dockerfile: Dockerfile
+    container_name: kontora_ops_panel_local
+    restart: unless-stopped
+    stop_grace_period: 10s
+    env_file:
+      - .env
+    environment:
+      OPS_ENVIRONMENT: ${OPS_ENVIRONMENT:-local}
+      OPS_BIND_ADDRESS: 0.0.0.0
+      OPS_PORT: 8090
+      OPS_AUTH_MODE: ${OPS_AUTH_MODE:-local-token}
+      OPS_LOCAL_TOKEN: ${OPS_LOCAL_TOKEN:?Defina OPS_LOCAL_TOKEN en infra/ops/.env}
+      OPS_DOCKER_API_URL: http://docker-api-proxy:2375
+      OPS_DB_DIAGNOSTICS_ENABLED: ${OPS_DB_DIAGNOSTICS_ENABLED:-false}
+      OPS_DB_HOST: ${OPS_DB_HOST:-postgres}
+      OPS_DB_PORT: ${OPS_DB_PORT:-5432}
+      OPS_DB_NAME: ${OPS_DB_NAME:-kontora_pos}
+      OPS_DB_USER: ${OPS_DB_USER:-kontora_ops_reader}
+      OPS_DB_PASSWORD: ${OPS_DB_PASSWORD:-}
+      OPS_DB_SSLMODE: ${OPS_DB_SSLMODE:-disable}
+      OPS_STORAGE_BUCKET: ${OPS_STORAGE_BUCKET:-kontoraimagenes}
+      OPS_AUDIT_FILE: /var/lib/kontora-ops/audit.jsonl
+      OPS_AUDIT_STORAGE: volume
+      OPS_AUDIT_DEFAULT_LIMIT: ${OPS_AUDIT_DEFAULT_LIMIT:-100}
+      OPS_AUDIT_MAX_BYTES: ${OPS_AUDIT_MAX_BYTES:-52428800}
+      OPS_AUDIT_VOLUME: ${OPS_AUDIT_VOLUME_NAME:-kontora_ops_audit_local_data}
+    depends_on:
+      - docker-api-proxy
+    ports:
+      - "${OPS_HOST_BIND_ADDRESS:-127.0.0.1}:${OPS_HOST_PORT:-8090}:8090"
+    volumes:
+      - ops_audit_data:/var/lib/kontora-ops
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - docker_readonly
+      - pos_database
+      - tunnel
+
+  ops-db-init:
+    image: postgres:16-alpine
+    profiles:
+      - setup
+    restart: "no"
+    env_file:
+      - ../.env
+      - .env
+    entrypoint:
+      - /bin/sh
+      - /opt/kontora/init-ops-reader.sh
+    volumes:
+      - ./scripts/init-ops-reader.sh:/opt/kontora/init-ops-reader.sh:ro
+      - ./scripts/init-ops-reader.sql:/opt/kontora/init-ops-reader.sql:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - pos_database
+
+  cloudflared:
+    image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2026.7.2}
+    container_name: kontora_ops_cloudflared_local
+    restart: unless-stopped
+    profiles:
+      - tunnel
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+    environment:
+      TUNNEL_TOKEN: ${OPS_CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - ops-panel
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - tunnel
+
+networks:
+  docker_readonly:
+    internal: true
+  pos_database:
+    external: true
+    name: ${OPS_POS_DATABASE_NETWORK:-infra_database}
+  tunnel:
+
+volumes:
+  ops_audit_data:
+    name: ${OPS_AUDIT_VOLUME_NAME:-kontora_ops_audit_local_data}

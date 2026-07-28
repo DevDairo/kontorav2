@@ -2,9 +2,14 @@
 
 ## Estado
 
-Diseño aprobado técnicamente para implementación por fases. El panel todavía no
-está habilitado y ninguna operación destructiva debe exponerse hasta completar
-las fases de diagnóstico, respaldo y restauración.
+Diseño aprobado técnicamente para implementación por fases. La Fase 1A/1B de
+solo lectura fue validada con Docker en el equipo local. El panel conserva la
+identidad visual de Kontora mediante el mismo shell con sidebar, barra superior,
+paleta, tarjetas y navegación adaptable. Ninguna operación destructiva está
+expuesta.
+
+La ejecución local está documentada en
+[infra/ops/README.md](../../infra/ops/README.md).
 
 ## Objetivo
 
@@ -88,6 +93,8 @@ flowchart LR
     L --> D["Docker Compose de Kontora"]
     L --> B["Directorio de respaldos fuera del repositorio"]
     B --> E["Destino externo cifrado"]
+    W --> R["PostgreSQL con rol exclusivo de lectura"]
+    W --> O["Volumen propio de bitácora operacional"]
     W --> P["Backend POS para consultas y exportaciones"]
 ```
 
@@ -100,6 +107,18 @@ detenidos.
 El estado de trabajos y su auditoría se guardan fuera de la base principal, en
 un volumen propio del panel. El reinicio de Kontora no puede borrar esa
 bitácora.
+
+La Fase 1 utiliza un archivo JSONL append-only dentro del volumen
+`kontora_ops_audit_*_data`. Cada evento conserva secuencia, fecha, entorno,
+operador, acción, resultado, detalles redactados, hash anterior y hash propio.
+La cadena se verifica al arrancar; una inconsistencia impide que el panel inicie
+como si la bitácora fuera válida. El archivo se sincroniza a disco después de
+cada evento y tiene un límite configurable de 50 MiB.
+
+El encadenamiento detecta corrupción y alteraciones que no reconstruyan toda la
+cadena, pero no sustituye almacenamiento inmutable frente a un atacante con
+control total del host. La copia externa de la Fase 2 incluirá también este
+volumen.
 
 ### Ejecutor local
 
@@ -125,6 +144,39 @@ se definen durante la instalación.
 En producción, la comunicación entre la API y el ejecutor debe usar un socket
 Unix dedicado o un canal local autenticado. En desarrollo Windows puede usar
 `127.0.0.1` con una credencial generada y sin publicar el puerto en la red.
+
+### Diagnóstico interno de PostgreSQL
+
+El panel no reutiliza el usuario propietario de Kontora. Un inicializador
+puntual crea o rota `kontora_ops_reader` con estas restricciones:
+
+- `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOINHERIT`,
+  `NOREPLICATION` y `NOBYPASSRLS`;
+- máximo cinco conexiones;
+- `default_transaction_read_only=on`;
+- únicamente `CONNECT`, `USAGE` del esquema cerrado `kontora_ops` y `EXECUTE`
+  sobre tres funciones de diagnóstico;
+- contraseña distinta de la aplicación y generada localmente.
+
+El contenedor temporal de inicialización recibe el usuario propietario solo
+durante el aprovisionamiento y se elimina al finalizar. El panel permanente
+recibe exclusivamente la credencial lectora. Las funciones
+`SECURITY DEFINER` tienen `search_path` fijo, retiran el acceso de `PUBLIC` y
+solo devuelven los campos agregados necesarios. Así se respeta el RLS de
+Storage sin conceder `BYPASSRLS` ni acceso directo a las tablas. Cada consulta
+usa además `BEGIN TRANSACTION READ ONLY`, tiempo máximo y parámetros SQL.
+
+El panel muestra:
+
+- versión y último resultado de Flyway;
+- presencia, privacidad, límite, tipos permitidos y conteo del bucket;
+- referencias con URL inválida;
+- referencias cuyo objeto no existe;
+- objetos del bucket sin referencia en `archivos_evidencia`.
+
+Si PostgreSQL se detiene, la interfaz y el diagnóstico Docker continúan
+disponibles; los tres controles internos cambian a `No disponible` sin exponer
+el error de conexión.
 
 ## Tres funciones diferentes
 
@@ -254,8 +306,12 @@ vida, fechas, usuario, motivo, hash y referencia de respaldo necesarios.
 - Secretos redactados en interfaz, logs, manifiestos y mensajes de error.
 - Sin consola web, terminal, editor de `.env` ni ejecución de comandos libres.
 - Sin montaje directo del socket Docker en el panel.
+- Sin credenciales propietarias de PostgreSQL en el contenedor permanente.
+- Consultas internas con rol dedicado y transacciones de solo lectura.
 - Copias y auditoría fuera del repositorio y fuera de la base reiniciable.
 - El panel no puede eliminar su propio volumen ni el último respaldo verificado.
+- Redacción de claves con nombres sensibles antes de persistir eventos.
+- Verificación de la cadena de hashes durante cada arranque.
 
 ## Reinicio total desde el panel
 
@@ -286,6 +342,15 @@ OPS_CLOUDFLARE_TUNNEL_TOKEN=
 OPS_CF_ACCESS_TEAM_DOMAIN=
 OPS_CF_ACCESS_AUD=
 OPS_ALLOWED_EMAILS=
+
+OPS_DB_DIAGNOSTICS_ENABLED=true
+OPS_DB_USER=kontora_ops_reader
+OPS_DB_PASSWORD=
+OPS_STORAGE_BUCKET=kontoraimagenes
+
+OPS_AUDIT_VOLUME_NAME=kontora_ops_audit_local_data
+OPS_AUDIT_DEFAULT_LIMIT=100
+OPS_AUDIT_MAX_BYTES=52428800
 
 OPS_EXTERNAL_BACKUP_PROVIDER=filesystem
 OPS_EXTERNAL_BACKUP_PATH=
@@ -333,6 +398,25 @@ expuestas.
 
 Cierre: el panel sigue mostrando el trabajo cuando el POS está detenido y no
 posee endpoints mutables.
+
+Estado actual:
+
+- servicio e interfaz independientes: implementados;
+- dashboard y navegación visualmente alineados con Kontora: implementados;
+- autenticación local: implementada;
+- validación criptográfica de Cloudflare Access: implementada;
+- proxy Docker limitado a `GET`/`HEAD`, contenedores y volúmenes:
+  implementado;
+- validación Docker local: completada;
+- validación visual y navegación del dashboard: completada;
+- Flyway, bucket y consistencia de evidencias: implementados y validados en
+  Docker local;
+- bitácora operacional persistente: implementada y validada mediante recreación
+  del contenedor;
+- aceptación visual completa: validada.
+
+La Fase 1 queda cerrada. El siguiente alcance es la Fase 2 de respaldo y
+restauración controlada.
 
 ### Fase 2. Respaldo y restauración
 

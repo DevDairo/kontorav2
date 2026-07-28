@@ -2,6 +2,7 @@
 .env
 *.env
 !*.env.example
+infra/ops/.env
 
 # Java / Spring Boot
 target/

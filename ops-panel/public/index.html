@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f5f8fc" />
+    <title>Kontora POS · Operaciones</title>
+    <meta
+      name="description"
+      content="Panel de operaciones y diagnóstico de solo lectura para Kontora POS."
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="opsSidebar">
+        <div class="brand">
+          <span class="brand-mark">K</span>
+          <span class="brand-copy">
+            <strong>Kontora POS</strong>
+            <small>Operaciones</small>
+          </span>
+        </div>
+
+        <nav class="menu" id="mainNavigation" aria-label="Navegación del panel">
+          <button class="active" type="button" data-view="dashboard" aria-current="page">
+            <span class="menu-icon" aria-hidden="true">⌂</span>
+            <span class="menu-label">Dashboard</span>
+          </button>
+          <button type="button" data-view="system">
+            <span class="menu-icon" aria-hidden="true">▦</span>
+            <span class="menu-label">Sistema</span>
+          </button>
+          <button type="button" data-view="persistence">
+            <span class="menu-icon" aria-hidden="true">◫</span>
+            <span class="menu-label">Persistencia</span>
+          </button>
+          <button type="button" data-view="audit">
+            <span class="menu-icon" aria-hidden="true">≡</span>
+            <span class="menu-label">Bitácora</span>
+          </button>
+
+          <span class="menu-section-label">Próximas fases</span>
+
+          <button type="button" data-view="backups">
+            <span class="menu-icon" aria-hidden="true">↥</span>
+            <span class="menu-label">Respaldos</span>
+            <span class="menu-tag">Próximo</span>
+          </button>
+          <button type="button" data-view="exports">
+            <span class="menu-icon" aria-hidden="true">⇩</span>
+            <span class="menu-label">Exportaciones</span>
+            <span class="menu-tag">Próximo</span>
+          </button>
+          <button type="button" data-view="evidence">
+            <span class="menu-icon" aria-hidden="true">▤</span>
+            <span class="menu-label">Evidencias</span>
+            <span class="menu-tag">Próximo</span>
+          </button>
+          <button type="button" data-view="reset">
+            <span class="menu-icon" aria-hidden="true">↻</span>
+            <span class="menu-label">Reinicio total</span>
+            <span class="menu-tag danger">Bloqueado</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-safety">
+          <span class="status-dot"></span>
+          <span>
+            <strong>Modo seguro</strong>
+            <small>Solo lectura</small>
+          </span>
+        </div>
+      </aside>
+
+      <div class="workspace">
+        <header class="topbar">
+          <div class="topbar-start">
+            <button
+              class="icon-button mobile-menu-button"
+              id="menuButton"
+              type="button"
+              aria-label="Abrir menú"
+              aria-expanded="false"
+              aria-controls="opsSidebar"
+            >
+              ☰
+            </button>
+            <div class="brand mobile-brand">
+              <span class="brand-mark">K</span>
+              <span class="brand-copy">
+                <strong>Kontora POS</strong>
+                <small>Operaciones</small>
+              </span>
+            </div>
+          </div>
+
+          <div class="topbar-actions">
+            <span class="status-pill loading" id="topbarStatus">
+              <span class="status-dot"></span>
+              <span id="topbarStatusText">Consultando</span>
+            </span>
+            <div class="user-chip" aria-label="Sesión del panel">
+              <span class="avatar" aria-hidden="true">O</span>
+              <span>
+                <strong id="operatorName">Operador</strong>
+                <small id="operatorMode">Solo lectura</small>
+              </span>
+            </div>
+            <button
+              class="icon-button"
+              id="logoutButton"
+              type="button"
+              aria-label="Cerrar sesión local"
+              title="Cerrar sesión local"
+            >
+              ↪
+            </button>
+          </div>
+        </header>
+
+        <main class="content">
+          <section class="view-panel active" data-view-panel="dashboard">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Infraestructura</p>
+                <h1>Panel de operaciones</h1>
+                <p class="lead">
+                  Supervisa el estado técnico de Kontora antes de realizar mantenimiento.
+                </p>
+              </div>
+              <button class="primary-button refresh-button" type="button">
+                Actualizar estado
+              </button>
+            </div>
+
+            <section class="home-summary-grid" aria-label="Resumen operativo">
+              <article class="home-summary-card">
+                <span class="home-summary-icon" aria-hidden="true">✓</span>
+                <span class="home-summary-copy">
+                  <small>Estado general</small>
+                  <strong id="overallStatus">Consultando…</strong>
+                  <span id="generatedAt">Esperando primera lectura</span>
+                </span>
+              </article>
+              <article class="home-summary-card">
+                <span class="home-summary-icon" aria-hidden="true">▦</span>
+                <span class="home-summary-copy">
+                  <small>Servicios</small>
+                  <strong id="operationalServices">—</strong>
+                  <span id="servicesDetail">Sin información</span>
+                </span>
+              </article>
+              <article class="home-summary-card">
+                <span class="home-summary-icon" aria-hidden="true">◫</span>
+                <span class="home-summary-copy">
+                  <small>Volúmenes</small>
+                  <strong id="availableVolumes">—</strong>
+                  <span id="volumesDetail">Sin información</span>
+                </span>
+              </article>
+              <article class="home-summary-card">
+                <span class="home-summary-icon" aria-hidden="true">D</span>
+                <span class="home-summary-copy">
+                  <small>Motor Docker</small>
+                  <strong id="engineVersion">—</strong>
+                  <span id="engineDetail">Sin información</span>
+                </span>
+              </article>
+            </section>
+
+            <div class="dashboard-grid">
+              <section class="panel" aria-labelledby="dashboard-services-title">
+                <div class="panel-title">
+                  <div>
+                    <p class="eyebrow">Aplicación</p>
+                    <h2 id="dashboard-services-title">Servicios principales</h2>
+                  </div>
+                  <button class="text-button" type="button" data-view-link="system">
+                    Ver detalle
+                  </button>
+                </div>
+                <div id="dashboardServicesList" class="service-list" aria-live="polite">
+                  <div class="empty-state">Consultando contenedores…</div>
+                </div>
+              </section>
+
+              <aside class="panel" aria-labelledby="dashboard-volumes-title">
+                <div class="panel-title">
+                  <div>
+                    <p class="eyebrow">Persistencia</p>
+                    <h2 id="dashboard-volumes-title">Volúmenes</h2>
+                  </div>
+                  <button class="text-button" type="button" data-view-link="persistence">
+                    Ver detalle
+                  </button>
+                </div>
+                <div id="dashboardVolumesList" class="volume-list" aria-live="polite">
+                  <div class="empty-state">Consultando volúmenes…</div>
+                </div>
+                <div class="safety-note">
+                  <span class="safety-icon" aria-hidden="true">✓</span>
+                  <span>
+                    <strong>Protección activa</strong>
+                    <small>Las operaciones de escritura están bloqueadas.</small>
+                  </span>
+                </div>
+              </aside>
+            </div>
+
+            <section class="phase-section" aria-labelledby="next-checks-title">
+              <div class="home-section-heading">
+                <div>
+                  <p class="eyebrow">Fase 1C</p>
+                  <h2 id="next-checks-title">Próximas comprobaciones</h2>
+                </div>
+              </div>
+              <div class="phase-grid">
+                <article class="phase-card">
+                  <span class="phase-icon">DB</span>
+                  <span>
+                    <strong>Flyway</strong>
+                    <small id="flywayDashboardDetail">Versiones y resultado de migraciones.</small>
+                  </span>
+                  <span class="badge warning" id="flywayDashboardStatus">Consultando</span>
+                </article>
+                <article class="phase-card">
+                  <span class="phase-icon storage">ST</span>
+                  <span>
+                    <strong>Bucket privado</strong>
+                    <small id="bucketDashboardDetail">Configuración, límite y tipos permitidos.</small>
+                  </span>
+                  <span class="badge warning" id="bucketDashboardStatus">Consultando</span>
+                </article>
+                <article class="phase-card">
+                  <span class="phase-icon evidence">EV</span>
+                  <span>
+                    <strong>Consistencia</strong>
+                    <small id="evidenceDashboardDetail">Objetos y referencias de evidencia.</small>
+                  </span>
+                  <span class="badge warning" id="evidenceDashboardStatus">Consultando</span>
+                </article>
+              </div>
+            </section>
+          </section>
+
+          <section class="view-panel" data-view-panel="system">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Diagnóstico</p>
+                <h1>Sistema</h1>
+                <p class="lead">
+                  Estado de ejecución, salud e imagen de cada servicio autorizado.
+                </p>
+              </div>
+              <button class="primary-button refresh-button" type="button">
+                Actualizar estado
+              </button>
+            </div>
+            <section class="panel">
+              <div class="panel-title">
+                <div>
+                  <p class="eyebrow">Docker</p>
+                  <h2>Servicios de Kontora</h2>
+                </div>
+                <span class="environment-badge" id="environmentBadge">local</span>
+              </div>
+              <div id="systemServicesList" class="service-list detailed" aria-live="polite">
+                <div class="empty-state">Consultando contenedores…</div>
+              </div>
+            </section>
+          </section>
+
+          <section class="view-panel" data-view-panel="persistence">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Diagnóstico</p>
+                <h1>Persistencia</h1>
+                <p class="lead">
+                  Presencia y datos técnicos de los volúmenes de PostgreSQL y Storage.
+                </p>
+              </div>
+              <button class="primary-button refresh-button" type="button">
+                Actualizar estado
+              </button>
+            </div>
+            <section class="panel">
+              <div class="panel-title">
+                <div>
+                  <p class="eyebrow">Docker</p>
+                  <h2>Volúmenes persistentes</h2>
+                </div>
+              </div>
+              <div id="persistenceVolumesList" class="volume-list detailed" aria-live="polite">
+                <div class="empty-state">Consultando volúmenes…</div>
+              </div>
+              <div class="info-note">
+                El panel solo comprueba que los volúmenes configurados existen. No puede
+                montarlos, modificarlos ni eliminarlos.
+              </div>
+            </section>
+
+            <section class="panel persistence-diagnostics-panel">
+              <div class="panel-title">
+                <div>
+                  <p class="eyebrow">PostgreSQL · solo lectura</p>
+                  <h2>Integridad interna</h2>
+                </div>
+                <span class="environment-badge" id="databaseReaderBadge">Sin conexión</span>
+              </div>
+              <div
+                id="databaseDiagnosticsList"
+                class="integrity-grid"
+                aria-live="polite"
+              >
+                <div class="empty-state">Consultando Flyway, Storage y evidencias…</div>
+              </div>
+              <div class="safety-note">
+                <span class="safety-icon" aria-hidden="true">✓</span>
+                <span>
+                  <strong>Conexión restringida</strong>
+                  <small>
+                    Usa un rol independiente con transacciones de solo lectura.
+                  </small>
+                </span>
+              </div>
+            </section>
+          </section>
+
+          <section class="view-panel" data-view-panel="audit">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Trazabilidad independiente</p>
+                <h1>Bitácora operacional</h1>
+                <p class="lead">
+                  Eventos técnicos conservados fuera de la base principal de Kontora.
+                </p>
+              </div>
+              <button class="primary-button audit-refresh-button" type="button">
+                Actualizar bitácora
+              </button>
+            </div>
+
+            <section class="audit-summary-grid" aria-label="Resumen de la bitácora">
+              <article class="home-summary-card">
+                <span class="home-summary-icon" aria-hidden="true">≡</span>
+                <span class="home-summary-copy">
+                  <small>Eventos conservados</small>
+                  <strong id="auditTotalEntries">—</strong>
+                  <span id="auditReturnedEntries">Esperando primera lectura</span>
+                </span>
+              </article>
+              <article class="home-summary-card">
+                <span class="home-summary-icon" aria-hidden="true">✓</span>
+                <span class="home-summary-copy">
+                  <small>Integridad</small>
+                  <strong id="auditIntegrity">Consultando…</strong>
+                  <span id="auditIntegrityDetail">Cadena SHA-256</span>
+                </span>
+              </article>
+              <article class="home-summary-card">
+                <span class="home-summary-icon" aria-hidden="true">V</span>
+                <span class="home-summary-copy">
+                  <small>Almacenamiento</small>
+                  <strong id="auditStorage">—</strong>
+                  <span id="auditHeadHash">Sin hash confirmado</span>
+                </span>
+              </article>
+            </section>
+
+            <section class="panel">
+              <div class="panel-title">
+                <div>
+                  <p class="eyebrow">Más recientes primero</p>
+                  <h2>Eventos del panel</h2>
+                </div>
+                <span class="environment-badge" id="auditEnvironmentBadge">local</span>
+              </div>
+              <div id="auditEntriesList" class="audit-list" aria-live="polite">
+                <div class="empty-state">Consultando la bitácora…</div>
+              </div>
+              <div class="info-note">
+                Cada evento incluye el hash del anterior. Una alteración impide validar
+                la cadena durante el siguiente arranque.
+              </div>
+            </section>
+          </section>
+
+          <section class="view-panel" data-view-panel="backups">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Fase 2</p>
+                <h1>Respaldos</h1>
+                <p class="lead">Copias coordinadas de PostgreSQL y Storage con verificación.</p>
+              </div>
+            </div>
+            <section class="future-panel">
+              <span class="future-icon">↥</span>
+              <h2>Módulo todavía bloqueado</h2>
+              <p>
+                Se habilitará únicamente después de cerrar las comprobaciones internas
+                de solo lectura.
+              </p>
+              <span class="badge warning">Próxima fase</span>
+            </section>
+          </section>
+
+          <section class="view-panel" data-view-panel="exports">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Fase 3</p>
+                <h1>Exportaciones</h1>
+                <p class="lead">Reportes de ventas y operación en PDF y XLSX.</p>
+              </div>
+            </div>
+            <section class="future-panel">
+              <span class="future-icon">⇩</span>
+              <h2>Módulo todavía bloqueado</h2>
+              <p>
+                Aquí se generarán reportes filtrados sin confundirlos con respaldos
+                restaurables.
+              </p>
+              <span class="badge warning">Próxima fase</span>
+            </section>
+          </section>
+
+          <section class="view-panel" data-view-panel="evidence">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Fase 4</p>
+                <h1>Evidencias</h1>
+                <p class="lead">Retención, respaldo y eliminación controlada de archivos.</p>
+              </div>
+            </div>
+            <section class="future-panel">
+              <span class="future-icon">▤</span>
+              <h2>Módulo todavía bloqueado</h2>
+              <p>
+                La eliminación permanecerá deshabilitada hasta contar con respaldo
+                verificado, trazabilidad y confirmación de gerente.
+              </p>
+              <span class="badge warning">Próxima fase</span>
+            </section>
+          </section>
+
+          <section class="view-panel" data-view-panel="reset">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow danger-text">Fase 5</p>
+                <h1>Reinicio total</h1>
+                <p class="lead">Procedimiento protegido para crear una instalación vacía.</p>
+              </div>
+            </div>
+            <section class="future-panel danger-panel">
+              <span class="future-icon danger">!</span>
+              <h2>Operación destructiva bloqueada</h2>
+              <p>
+                No existe ningún endpoint capaz de iniciar este proceso en la versión
+                actual del panel.
+              </p>
+              <span class="badge danger">No disponible</span>
+            </section>
+          </section>
+        </main>
+
+        <footer class="app-footer">
+          <span>Kontora POS · Panel independiente de operaciones</span>
+          <span>Sin acciones destructivas habilitadas</span>
+        </footer>
+      </div>
+    </div>
+
+    <dialog id="localAuthDialog" class="auth-dialog">
+      <form id="localAuthForm" method="dialog">
+        <div class="brand brand-centered">
+          <span class="brand-mark">K</span>
+          <span class="brand-copy">
+            <strong>Kontora POS</strong>
+            <small>Operaciones</small>
+          </span>
+        </div>
+        <p class="eyebrow">Acceso local</p>
+        <h2>Credencial del panel</h2>
+        <p>
+          Ingresa la credencial generada para este entorno. Se conserva únicamente
+          durante esta sesión del navegador.
+        </p>
+        <label>
+          Credencial
+          <input
+            id="localTokenInput"
+            name="token"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+        </label>
+        <p id="authError" class="auth-error" role="alert"></p>
+        <button class="primary-button full-width" type="submit">Ingresar</button>
+      </form>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

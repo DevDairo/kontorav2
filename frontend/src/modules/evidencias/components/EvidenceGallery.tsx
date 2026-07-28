@@ -208,7 +208,11 @@ export function EvidenceGallery({
           </button>
         </header>
 
-        <div className="evidence-preview-frame">
+        <div
+          className={`evidence-preview-frame${
+            previewState === "success" && canPreviewImage ? " evidence-preview-frame-image" : ""
+          }`}
+        >
           {previewState === "loading" ? (
             <div className="evidence-preview-placeholder">
               <LoaderCircle className="spin" size={28} aria-hidden="true" />

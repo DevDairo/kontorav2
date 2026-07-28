@@ -3593,7 +3593,6 @@ h3 {
   width: auto;
   height: auto;
   max-width: 100%;
-  max-height: 100%;
   image-orientation: from-image;
   object-fit: contain;
   object-position: center;
@@ -3666,6 +3665,18 @@ h3 {
 .transferencias-panel {
   display: grid;
   gap: 18px;
+}
+
+.transferencias-panel .evidence-preview-frame-image {
+  height: auto;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: clamp(8px, 1.2vw, 14px);
+}
+
+.transferencias-panel .evidence-preview-frame-image img {
+  max-height: min(70vh, 760px);
+  max-height: min(70dvh, 760px);
 }
 
 .transferencias-header {

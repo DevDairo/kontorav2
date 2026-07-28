@@ -13,10 +13,15 @@ reglas completas permanecen en la guia de cada modulo.
 | Comprobante de venta | Muestra hora, tipo con o sin licor, tamanos, cantidades, equivalencia en paquetes de 20 vasos y metodo de pago. | [Ventas y pagos](./04-ventas-y-pagos.md) |
 | Confirmacion visible | Despues de registrar, la pantalla desplaza el comprobante nuevo al area visible y respeta `prefers-reduced-motion`. | [Ventas y pagos](./04-ventas-y-pagos.md) |
 | Anulacion informada | El selector y el detalle muestran hora, tipo de venta, vasos, equivalencia y pagos antes de confirmar. | [Ventas y pagos](./04-ventas-y-pagos.md) |
+| Jornada operativa | El registro toma el `idCajaDiaria` abierto y usa su `fechaOperacion` para resolver precios y promociones, incluso si el contenedor ya cambio de dia en UTC. | [Ventas y pagos](./04-ventas-y-pagos.md) |
 | Consultas | Cada venta conserva esos datos y las anuladas permanecen como trazabilidad sin aportar a totales vigentes. | [Consultas y evidencias](./11-consultas.md) |
 
 La API de consultas fue validada con ocho pruebas de integracion exitosas. El
 frontend y backend se construyeron en imagenes Docker despues de estos cambios.
+La correccion de jornada operativa agrego una prueba unitaria de regresion; las
+tres pruebas de `VentasServiceTest` finalizaron sin fallos ni errores. La imagen
+del backend se reconstruyo, se recreo exclusivamente ese servicio y los health
+locales y publicos respondieron correctamente.
 
 ## Evidencias
 

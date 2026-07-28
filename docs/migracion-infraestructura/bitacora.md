@@ -294,6 +294,14 @@
 | OPS-VAL-013 | VAL | resuelto | Se creó `kontora_ops_audit_local_data`, el panel quedó `healthy` y Docker lo reportó presente. La primera consulta devolvió dos eventos con cadena `verified`; después de recrear exclusivamente `ops-panel`, permanecieron los eventos anteriores y se agregaron `panel.stopped`, `panel.started` y un nuevo diagnóstico, con secuencia continua e integridad verificada. |
 | OPS-VAL-014 | VAL | resuelto | La aceptación visual confirmó la nueva navegación `Bitácora`, seis eventos legibles, integridad `Verificada`, almacenamiento `Volumen Docker`, hashes abreviados, operadores, fechas y estados `Correcto`, sin romper la identidad visual ni las vistas anteriores. Con esta evidencia queda cerrada toda la Fase 1. |
 
+## Ventas asociadas a la jornada de caja
+
+| ID | Tipo | Estado | Detalle |
+| --- | --- | --- | --- |
+| VTA-ERR-001 | ERR | resuelto | Despues de las 19:00 en Colombia, el frontend seguia usando la fecha local de la jornada mientras `VentasService` calculaba precios y promociones con `LocalDate.now()` en un contenedor configurado en UTC. La caja abierta conservaba `fecha_operacion=2026-07-27`, pero el backend ya evaluaba `2026-07-28`; algunas ventas recibian `400` al resolver una regla diaria distinta. Los avisos `ERR_BLOCKED_BY_CLIENT` de Cloudflare Insights y el `404` opcional de pago diario a trabajadores no eran la causa. |
+| VTA-MOD-001 | MOD | resuelto | `registrarVenta` obtiene primero la caja abierta y usa `cajaDiaria.getFechaOperacion()` para consultar precios y promociones. La entidad `Venta` permanece asociada al mismo objeto de caja y, por tanto, al mismo `idCajaDiaria`; el calculo de la jornada ya no depende del reloj ni de la zona horaria del contenedor. |
+| VTA-VAL-001 | VAL | resuelto | Se agrego una prueba unitaria que fija una fecha de caja distinta de la fecha del sistema y verifica que `PrecioGranizadoRepository` reciba la fecha operativa. `VentasServiceTest` finalizo con 3 pruebas, 0 fallos y 0 errores; la imagen termino con `BUILD SUCCESS`, se recreo solo el backend, Flyway valido V1/V2 y `/healthz` y `/api/health` respondieron correctamente tanto localmente como por `https://kontora-pos.store`. |
+
 ## Plantilla para nuevos registros
 
 | ID | Tipo | Estado | Detalle |

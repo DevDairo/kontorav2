@@ -35,6 +35,9 @@ Registrar ventas de granizados, aplicar precios y promociones vigentes, distribu
 ## Reglas clave
 
 - Toda venta exige una caja diaria abierta.
+- La vigencia de precios y promociones se evalua con `fechaOperacion` de esa
+  caja abierta. La venta queda asociada al mismo `idCajaDiaria` y no depende de
+  la fecha UTC ni de la zona horaria del contenedor.
 - La suma de pagos debe coincidir con el total de la venta.
 - El pago mixto requiere una transferencia mayor que cero y menor que el total; el efectivo recibido debe cubrir el saldo restante. Si la transferencia cubre el total, se usa el metodo Transferencia.
 - Cada venta descuenta vasos segun el tamano; la anulacion devuelve al stock diario todos los vasos de sus lineas, para efectivo, transferencia y pago mixto.

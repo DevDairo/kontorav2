@@ -99,8 +99,8 @@ public class VentasService {
 
     @Transactional
     public VentaResponse registrarVenta(RegistrarVentaRequest request, PrincipalUsuario principalUsuario) {
-        LocalDate fechaOperacion = LocalDate.now();
         CajaDiaria cajaDiaria = obtenerCajaAbierta();
+        LocalDate fechaOperacion = cajaDiaria.getFechaOperacion();
         Usuario usuarioVendedor = obtenerUsuario(principalUsuario.idUsuario(), "Usuario vendedor no encontrado");
         String tipoComprador = normalizarTipoComprador(request.tipoComprador());
         Usuario usuarioComprador = obtenerUsuarioComprador(tipoComprador, request.idUsuarioComprador());

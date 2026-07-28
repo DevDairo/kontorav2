@@ -37,7 +37,23 @@ Registrar ventas de granizados, aplicar precios y promociones vigentes, distribu
 - Toda venta exige una caja diaria abierta.
 - La vigencia de precios y promociones se evalua con `fechaOperacion` de esa
   caja abierta. La venta queda asociada al mismo `idCajaDiaria` y no depende de
-  la fecha UTC ni de la zona horaria del contenedor.
+  la fecha UTC, de la zona horaria del contenedor ni de la fecha del dispositivo
+  que usa el punto de venta. La vista previa del frontend consulta esa misma
+  fecha operativa antes de cargar precios y promociones.
+- La promocion general para clientes aplica por pares del mismo tamano durante
+  martes y miercoles de la caja operativa.
+- Fuera de los dias de promocion general, cada trabajador puede usar un unico
+  beneficio 2x con licor por caja operativa. Si compra cuatro vasos del mismo
+  tamano, solo dos reciben el beneficio y los otros dos se cobran a precio
+  normal. Las ventas posteriores del mismo trabajador en esa caja se cobran a
+  precio normal.
+- En martes y miercoles, el trabajador participa en la promocion general por
+  pares sin que el limite del beneficio laboral altere esa regla. Una promocion
+  general no consume el beneficio especial del trabajador.
+- El limite se valida en backend por `idCajaDiaria` e
+  `idUsuarioComprador`. Las ventas anuladas no consumen el beneficio y las
+  solicitudes simultaneas del mismo trabajador se serializan para impedir un
+  uso doble.
 - La suma de pagos debe coincidir con el total de la venta.
 - El pago mixto requiere una transferencia mayor que cero y menor que el total; el efectivo recibido debe cubrir el saldo restante. Si la transferencia cubre el total, se usa el metodo Transferencia.
 - Cada venta descuenta vasos segun el tamano; la anulacion devuelve al stock diario todos los vasos de sus lineas, para efectivo, transferencia y pago mixto.

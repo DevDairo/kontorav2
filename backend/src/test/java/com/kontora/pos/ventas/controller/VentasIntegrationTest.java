@@ -36,6 +36,7 @@ class VentasIntegrationTest {
     private static final String USUARIO_VENDEDOR = "test_ventas_vendedor";
     private static final String USUARIO_TRABAJADOR = "test_ventas_trabajador";
     private static final LocalDate FECHA_CAJA = LocalDate.of(2200, 1, 1);
+    private static final LocalDate FECHA_CAJA_SIN_PROMOCION_GENERAL = LocalDate.of(2200, 1, 3);
 
     @Autowired
     private MockMvc mockMvc;
@@ -134,6 +135,87 @@ class VentasIntegrationTest {
                 AND pv.estado_validacion = 'pendiente'
                 """, BigDecimal.class);
         assertThat(transferenciasPendientes).isEqualByComparingTo("15000.00");
+    }
+
+    @Test
+    void limitaBeneficioTrabajadorAUnParPorCajaFueraDeDiasDePromocion() throws Exception {
+        crearCajaAbierta(FECHA_CAJA_SIN_PROMOCION_GENERAL);
+        String token = iniciarSesion(USUARIO_VENDEDOR);
+
+        mockMvc.perform(post("/api/ventas")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestVentaTrabajador(4, "28000.00"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.subtotalVenta").value(32000.00))
+                .andExpect(jsonPath("$.descuentoPromocion").value(4000.00))
+                .andExpect(jsonPath("$.totalVenta").value(28000.00))
+                .andExpect(jsonPath("$.detalles[0].cantidadConPromocion").value(2))
+                .andExpect(jsonPath("$.detalles[0].cantidadSinPromocion").value(2));
+
+        mockMvc.perform(get("/api/ventas/trabajadores")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$[?(@.idUsuario == '%s' && @.beneficioPromocionDisponible == false)]"
+                                .formatted(idUsuarioTrabajador))
+                        .exists());
+
+        mockMvc.perform(post("/api/ventas")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestVentaTrabajador(2, "16000.00"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.subtotalVenta").value(16000.00))
+                .andExpect(jsonPath("$.descuentoPromocion").value(0.00))
+                .andExpect(jsonPath("$.totalVenta").value(16000.00))
+                .andExpect(jsonPath("$.detalles[0].cantidadConPromocion").value(0))
+                .andExpect(jsonPath("$.detalles[0].cantidadSinPromocion").value(2));
+
+        mockMvc.perform(post("/api/ventas")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                requestVentaTrabajador(idUsuarioGerente, 2, "12000.00"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.idUsuarioComprador").value(idUsuarioGerente.toString()))
+                .andExpect(jsonPath("$.descuentoPromocion").value(4000.00))
+                .andExpect(jsonPath("$.totalVenta").value(12000.00))
+                .andExpect(jsonPath("$.detalles[0].cantidadConPromocion").value(2));
+    }
+
+    @Test
+    void mantienePromocionGeneralPorParesParaTrabajadorEnMiercoles() throws Exception {
+        crearCajaAbierta();
+        String token = iniciarSesion(USUARIO_VENDEDOR);
+
+        mockMvc.perform(post("/api/ventas")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestVentaTrabajador(4, "24000.00"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.subtotalVenta").value(32000.00))
+                .andExpect(jsonPath("$.descuentoPromocion").value(8000.00))
+                .andExpect(jsonPath("$.totalVenta").value(24000.00))
+                .andExpect(jsonPath("$.detalles[0].cantidadConPromocion").value(4))
+                .andExpect(jsonPath("$.detalles[0].cantidadSinPromocion").value(0));
+
+        mockMvc.perform(post("/api/ventas")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestVentaTrabajador(2, "12000.00"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.descuentoPromocion").value(4000.00))
+                .andExpect(jsonPath("$.totalVenta").value(12000.00))
+                .andExpect(jsonPath("$.detalles[0].cantidadConPromocion").value(2));
+
+        mockMvc.perform(get("/api/ventas/trabajadores")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$[?(@.idUsuario == '%s' && @.beneficioPromocionDisponible == true)]"
+                                .formatted(idUsuarioTrabajador))
+                        .exists());
     }
 
     @Test
@@ -280,6 +362,25 @@ class VentasIntegrationTest {
                                 "valorPago", new BigDecimal("15000.00"))));
     }
 
+    private Map<String, Object> requestVentaTrabajador(int cantidad, String total) {
+        return requestVentaTrabajador(idUsuarioTrabajador, cantidad, total);
+    }
+
+    private Map<String, Object> requestVentaTrabajador(UUID idTrabajador, int cantidad, String total) {
+        BigDecimal valorTotal = new BigDecimal(total);
+        return Map.of(
+                "tipoComprador", "trabajador",
+                "idUsuarioComprador", idTrabajador.toString(),
+                "detalles", List.of(Map.of(
+                        "idTipoGranizado", idTipoGranizado("con_licor").toString(),
+                        "idTamanoVaso", idTamanoVaso(8).toString(),
+                        "cantidad", cantidad)),
+                "pagos", List.of(Map.of(
+                        "idMetodoPago", idMetodoPago("efectivo").toString(),
+                        "valorPago", valorTotal,
+                        "valorRecibidoEfectivo", valorTotal)));
+    }
+
     private Map<String, Object> requestVentaConPagoIncorrecto() {
         return Map.of(
                 "tipoComprador", "cliente",
@@ -315,6 +416,10 @@ class VentasIntegrationTest {
     }
 
     private void crearCajaAbierta() {
+        crearCajaAbierta(FECHA_CAJA);
+    }
+
+    private void crearCajaAbierta(LocalDate fechaOperacion) {
         UUID idCajaDiaria = jdbcTemplate.queryForObject("""
                 INSERT INTO cajas_diarias (
                     fecha_operacion,
@@ -325,7 +430,7 @@ class VentasIntegrationTest {
                 )
                 VALUES (?, 'abierta'::estado_caja_enum, 300000, ?, 'test_ventas_caja')
                 RETURNING id_caja_diaria
-                """, UUID.class, FECHA_CAJA, idUsuarioAdmin);
+                """, UUID.class, fechaOperacion, idUsuarioAdmin);
         crearStockDiarioVaso(idCajaDiaria, 8, 20);
     }
 

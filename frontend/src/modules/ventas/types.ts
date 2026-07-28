@@ -24,6 +24,7 @@ export type AnularVentaRequest = {
 };
 
 export type TrabajadorVenta = {
+  beneficioPromocionDisponible: boolean;
   idUsuario: string;
   nombreCompleto: string;
   nombreUsuario: string;

@@ -41,6 +41,7 @@ type LineaCalculada = VentaLinea & {
   promocion: Promocion | null;
   cantidadConPromocion: number;
   cantidadSinPromocion: number;
+  consumeBeneficioTrabajador: boolean;
 };
 
 type VentasPanelProps = {
@@ -49,14 +50,6 @@ type VentasPanelProps = {
 };
 
 const dayNames = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
-
-function todayLocalDate() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 function newLineId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
@@ -91,7 +84,7 @@ function messageFor(error: unknown) {
 }
 
 function promotionApplies(promocion: Promocion, tipoComprador: TipoComprador, fecha: string) {
-  if (promocion.tipoBeneficiario !== tipoComprador) {
+  if (promocion.tipoBeneficiario !== tipoComprador && promocion.tipoBeneficiario !== "todos") {
     return false;
   }
 
@@ -103,11 +96,28 @@ function promotionApplies(promocion: Promocion, tipoComprador: TipoComprador, fe
   return promocion.diasPromocion.includes(day);
 }
 
+function findPromotion(
+  catalogos: CatalogosFormulario | null,
+  line: VentaLinea,
+  tipoComprador: TipoComprador,
+  fecha: string,
+) {
+  return (
+    catalogos?.promocionesVigentes.find(
+      (item) =>
+        item.idTipoGranizado === line.idTipoGranizado &&
+        item.idTamanoVaso === line.idTamanoVaso &&
+        promotionApplies(item, tipoComprador, fecha),
+    ) ?? null
+  );
+}
+
 function calculateLine(
   line: VentaLinea,
   catalogos: CatalogosFormulario | null,
   tipoComprador: TipoComprador,
   fecha: string,
+  beneficioTrabajadorDisponible: boolean,
 ): LineaCalculada | null {
   const price = catalogos?.preciosVigentes.find(
     (item) => item.idTipoGranizado === line.idTipoGranizado && item.idTamanoVaso === line.idTamanoVaso,
@@ -117,13 +127,18 @@ function calculateLine(
     return null;
   }
 
+  const promocionGeneral =
+    tipoComprador === "trabajador" ? findPromotion(catalogos, line, "cliente", fecha) : null;
+  const promocionTrabajador =
+    tipoComprador === "trabajador" && beneficioTrabajadorDisponible
+      ? findPromotion(catalogos, line, "trabajador", fecha)
+      : null;
   const promotion =
-    catalogos?.promocionesVigentes.find(
-      (item) =>
-        item.idTipoGranizado === line.idTipoGranizado &&
-        item.idTamanoVaso === line.idTamanoVaso &&
-        promotionApplies(item, tipoComprador, fecha),
-    ) ?? null;
+    tipoComprador === "trabajador"
+      ? promocionGeneral ?? promocionTrabajador
+      : findPromotion(catalogos, line, "cliente", fecha);
+  const consumeBeneficioTrabajador =
+    tipoComprador === "trabajador" && promocionGeneral === null && promocionTrabajador !== null;
 
   const subtotal = toMoney(price.valorPrecio * line.cantidad);
 
@@ -132,6 +147,7 @@ function calculateLine(
       ...line,
       cantidadConPromocion: 0,
       cantidadSinPromocion: line.cantidad,
+      consumeBeneficioTrabajador: false,
       nombreTipo: price.nombreTipo,
       onzas: price.onzas,
       precioUnitario: price.valorPrecio,
@@ -141,7 +157,8 @@ function calculateLine(
     };
   }
 
-  const groups = Math.floor(line.cantidad / promotion.cantidadRequerida);
+  const availableGroups = Math.floor(line.cantidad / promotion.cantidadRequerida);
+  const groups = consumeBeneficioTrabajador ? Math.min(availableGroups, 1) : availableGroups;
   const cantidadConPromocion = groups * promotion.cantidadRequerida;
   const cantidadSinPromocion = line.cantidad - cantidadConPromocion;
   const total = toMoney(groups * promotion.valorPromocional + cantidadSinPromocion * price.valorPrecio);
@@ -150,6 +167,7 @@ function calculateLine(
     ...line,
     cantidadConPromocion,
     cantidadSinPromocion,
+    consumeBeneficioTrabajador,
     nombreTipo: price.nombreTipo,
     onzas: price.onzas,
     precioUnitario: price.valorPrecio,
@@ -159,8 +177,33 @@ function calculateLine(
   };
 }
 
+function calculateLines(
+  lines: VentaLinea[],
+  catalogos: CatalogosFormulario | null,
+  tipoComprador: TipoComprador,
+  fecha: string,
+  beneficioTrabajadorDisponible: boolean,
+) {
+  const calculated: LineaCalculada[] = [];
+  let beneficioRestante = beneficioTrabajadorDisponible;
+
+  for (const line of lines) {
+    const result = calculateLine(line, catalogos, tipoComprador, fecha, beneficioRestante);
+    if (!result) {
+      continue;
+    }
+    calculated.push(result);
+    if (result.consumeBeneficioTrabajador) {
+      beneficioRestante = false;
+    }
+  }
+
+  return calculated;
+}
+
 export function VentasPanel({ role, token }: VentasPanelProps) {
   const [catalogos, setCatalogos] = useState<CatalogosFormulario | null>(null);
+  const [fechaOperacion, setFechaOperacion] = useState<string | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
@@ -183,7 +226,6 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
   const [valorRecibido, setValorRecibido] = useState("");
   const [evidenciaTransferencia, setEvidenciaTransferencia] = useState<File | null>(null);
   const evidenciaTransferenciaInputRef = useRef<HTMLInputElement>(null);
-  const fechaCatalogos = useMemo(() => todayLocalDate(), []);
   const canCancelSales = role === "administrador" || role === "gerente";
   const [ventasJornada, setVentasJornada] = useState<ConsultaVenta[]>([]);
   const [isLoadingSales, setIsLoadingSales] = useState(false);
@@ -203,20 +245,23 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
     setErrorMessage(null);
 
     try {
+      const cajaAbierta = await obtenerCajaAbierta(token);
       const [response, trabajadoresResponse] = await Promise.all([
-        obtenerCatalogosFormulario(token, fechaCatalogos),
+        obtenerCatalogosFormulario(token, cajaAbierta.fechaOperacion),
         listarTrabajadoresVenta(token),
       ]);
+      setFechaOperacion(cajaAbierta.fechaOperacion);
       setCatalogos(response);
       setTrabajadores(trabajadoresResponse);
       setLoadState("success");
       setIdTipoGranizado((current) => current || (response.tiposGranizado[0]?.id ?? ""));
       setIdTamanoVaso((current) => current || (response.tamanosVaso[0]?.idTamanoVaso ?? ""));
     } catch (error) {
+      setFechaOperacion(null);
       setLoadState("error");
       setErrorMessage(messageFor(error));
     }
-  }, [fechaCatalogos, token]);
+  }, [token]);
 
   const loadVentasAnulables = useCallback(async () => {
     setIsLoadingSales(true);
@@ -301,13 +346,22 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
     return () => cancelAnimationFrame(animationFrame);
   }, [lastSale]);
 
-  const lineasCalculadas = useMemo(
-    () =>
-      lineas
-        .map((line) => calculateLine(line, catalogos, tipoComprador, fechaCatalogos))
-        .filter((line): line is LineaCalculada => Boolean(line)),
-    [catalogos, fechaCatalogos, lineas, tipoComprador],
+  const trabajadorSeleccionado = useMemo(
+    () => trabajadores.find((trabajador) => trabajador.idUsuario === idUsuarioComprador) ?? null,
+    [idUsuarioComprador, trabajadores],
   );
+  const lineasCalculadas = useMemo(() => {
+    if (!fechaOperacion) {
+      return [];
+    }
+    return calculateLines(
+      lineas,
+      catalogos,
+      tipoComprador,
+      fechaOperacion,
+      trabajadorSeleccionado?.beneficioPromocionDisponible ?? false,
+    );
+  }, [catalogos, fechaOperacion, lineas, tipoComprador, trabajadorSeleccionado?.beneficioPromocionDisponible]);
 
   const subtotalEstimado = useMemo(
     () => toMoney(lineasCalculadas.reduce((total, line) => total + line.subtotal, 0)),
@@ -446,15 +500,25 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
     }
 
     setSubmitMessage(null);
-    setLineas((current) => [
-      ...current,
-      {
-        cantidad: parsedQuantity,
-        id: newLineId(),
-        idTamanoVaso,
-        idTipoGranizado,
-      },
-    ]);
+    setLineas((current) => {
+      const existing = current.find(
+        (line) => line.idTipoGranizado === idTipoGranizado && line.idTamanoVaso === idTamanoVaso,
+      );
+      if (existing) {
+        return current.map((line) =>
+          line.id === existing.id ? { ...line, cantidad: line.cantidad + parsedQuantity } : line,
+        );
+      }
+      return [
+        ...current,
+        {
+          cantidad: parsedQuantity,
+          id: newLineId(),
+          idTamanoVaso,
+          idTipoGranizado,
+        },
+      ];
+    });
   }
 
   function removeLine(id: string) {
@@ -559,6 +623,7 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
 
     try {
       const response = await registrarVenta(token, buildRequest());
+      const consumioBeneficioTrabajador = lineasCalculadas.some((line) => line.consumeBeneficioTrabajador);
       setLastSale(response);
       setLastChangeEstimate(Math.max(diferenciaEfectivo, 0));
       setLineas([]);
@@ -566,6 +631,16 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
       setTransferenciaParcial("");
       setValorRecibido("");
       setSubmitMessage(null);
+      if (consumioBeneficioTrabajador && idUsuarioComprador) {
+        setTrabajadores((current) =>
+          current.map((trabajador) =>
+            trabajador.idUsuario === idUsuarioComprador
+              ? { ...trabajador, beneficioPromocionDisponible: false }
+              : trabajador,
+          ),
+        );
+      }
+      void listarTrabajadoresVenta(token).then(setTrabajadores).catch(() => undefined);
 
       if (canCancelSales) {
         void loadVentasAnulables();
@@ -666,7 +741,7 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
           <div className="panel-title">
             <div>
               <h2 id="venta-detalle-title">Detalle</h2>
-              <p>{fechaCatalogos}</p>
+              <p>{fechaOperacion ?? "Sin caja abierta"}</p>
             </div>
             <span className="badge">{loadState === "loading" ? "Cargando" : `${lineas.length}`}</span>
           </div>
@@ -698,10 +773,18 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
                     {trabajadores.map((trabajador) => (
                       <option key={trabajador.idUsuario} value={trabajador.idUsuario}>
                         {trabajador.nombreCompleto} ({trabajador.nombreUsuario})
+                        {!trabajador.beneficioPromocionDisponible ? " - beneficio usado" : ""}
                       </option>
                     ))}
                   </select>
                 </div>
+                {trabajadorSeleccionado ? (
+                  <small className="field-hint">
+                    {trabajadorSeleccionado.beneficioPromocionDisponible
+                      ? "Beneficio 2x disponible para esta caja operativa."
+                      : "El beneficio especial de esta caja ya fue utilizado. En dias de promocion general se conserva la regla por pares."}
+                  </small>
+                ) : null}
               </label>
             ) : null}
 

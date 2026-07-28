@@ -38,6 +38,7 @@ import java.math.RoundingMode;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -104,8 +105,16 @@ public class VentasService {
         Usuario usuarioVendedor = obtenerUsuario(principalUsuario.idUsuario(), "Usuario vendedor no encontrado");
         String tipoComprador = normalizarTipoComprador(request.tipoComprador());
         Usuario usuarioComprador = obtenerUsuarioComprador(tipoComprador, request.idUsuarioComprador());
+        boolean beneficioTrabajadorDisponible = beneficioTrabajadorDisponible(
+                cajaDiaria,
+                tipoComprador,
+                usuarioComprador);
 
-        List<DetalleCalculado> detallesCalculados = calcularDetalles(request.detalles(), tipoComprador, fechaOperacion);
+        List<DetalleCalculado> detallesCalculados = calcularDetalles(
+                request.detalles(),
+                tipoComprador,
+                fechaOperacion,
+                beneficioTrabajadorDisponible);
         BigDecimal subtotalVenta = sumaSubtotal(detallesCalculados);
         BigDecimal totalVenta = sumaTotal(detallesCalculados);
         BigDecimal descuentoPromocion = subtotalVenta.subtract(totalVenta).setScale(2, RoundingMode.HALF_UP);
@@ -141,13 +150,15 @@ public class VentasService {
 
     @Transactional(readOnly = true)
     public List<TrabajadorVentaResponse> listarTrabajadores() {
+        CajaDiaria cajaAbierta = cajaDiariaRepository.findPrimeraPorEstadoCaja(ESTADO_CAJA_ABIERTA).orElse(null);
         return usuarioRepository.findAllByOrderByNombreCompletoAsc()
                 .stream()
                 .filter(this::esUsuarioBeneficiario)
                 .map(usuario -> new TrabajadorVentaResponse(
                         usuario.getIdUsuario(),
                         usuario.getNombreUsuario(),
-                        usuario.getNombreCompleto()))
+                        usuario.getNombreCompleto(),
+                        cajaAbierta != null && beneficioTrabajadorDisponible(cajaAbierta, TIPO_TRABAJADOR, usuario)))
                 .toList();
     }
 
@@ -235,7 +246,10 @@ public class VentasService {
         if (idUsuarioComprador == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "idUsuarioComprador es obligatorio para ventas a trabajador");
         }
-        Usuario usuarioComprador = obtenerUsuario(idUsuarioComprador, "Usuario comprador trabajador no encontrado");
+        Usuario usuarioComprador = usuarioRepository.findByIdParaActualizar(idUsuarioComprador)
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "Usuario comprador trabajador no encontrado"));
         if (!esUsuarioBeneficiario(usuarioComprador)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "El comprador debe ser un usuario activo");
         }
@@ -246,13 +260,37 @@ public class VentasService {
         return ESTADO_USUARIO_ACTIVO.equals(usuario.getEstado());
     }
 
+    private boolean beneficioTrabajadorDisponible(
+            CajaDiaria cajaDiaria,
+            String tipoComprador,
+            Usuario usuarioComprador) {
+        return TIPO_TRABAJADOR.equals(tipoComprador)
+                && usuarioComprador != null
+                && !detalleVentaRepository.existeBeneficioTrabajadorAplicado(
+                        cajaDiaria.getIdCajaDiaria(),
+                        usuarioComprador.getIdUsuario());
+    }
+
     private List<DetalleCalculado> calcularDetalles(
             List<RegistrarDetalleVentaRequest> detalles,
             String tipoComprador,
-            LocalDate fechaOperacion) {
-        return consolidarDetalles(detalles).entrySet().stream()
-                .map(entry -> calcularDetalle(entry.getKey(), entry.getValue(), tipoComprador, fechaOperacion))
-                .toList();
+            LocalDate fechaOperacion,
+            boolean beneficioTrabajadorDisponible) {
+        List<DetalleCalculado> calculados = new ArrayList<>();
+        boolean beneficioRestante = beneficioTrabajadorDisponible;
+        for (Map.Entry<DetalleKey, Integer> entry : consolidarDetalles(detalles).entrySet()) {
+            DetalleCalculado calculado = calcularDetalle(
+                    entry.getKey(),
+                    entry.getValue(),
+                    tipoComprador,
+                    fechaOperacion,
+                    beneficioRestante);
+            calculados.add(calculado);
+            if (calculado.consumeBeneficioTrabajador()) {
+                beneficioRestante = false;
+            }
+        }
+        return calculados;
     }
 
     private Map<DetalleKey, Integer> consolidarDetalles(List<RegistrarDetalleVentaRequest> detalles) {
@@ -268,20 +306,44 @@ public class VentasService {
             DetalleKey key,
             Integer cantidad,
             String tipoComprador,
-            LocalDate fechaOperacion) {
+            LocalDate fechaOperacion,
+            boolean beneficioTrabajadorDisponible) {
         PrecioGranizado precio = precioGranizadoRepository
                 .findPrecioVigente(key.idTipoGranizado(), key.idTamanoVaso(), fechaOperacion)
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "No existe precio vigente para el tipo y tamano indicados"));
 
         BigDecimal precioUnitario = normalizarMoneda(precio.getValorPrecio());
         BigDecimal subtotalLinea = normalizarMoneda(precioUnitario.multiply(BigDecimal.valueOf(cantidad)));
-        Promocion promocion = seleccionarPromocion(key, tipoComprador, fechaOperacion);
+        Promocion promocionGeneral = TIPO_TRABAJADOR.equals(tipoComprador)
+                ? seleccionarPromocion(key, TIPO_CLIENTE, fechaOperacion)
+                : null;
+        Promocion promocion = promocionGeneral != null
+                ? promocionGeneral
+                : seleccionarPromocion(key, tipoComprador, fechaOperacion);
 
-        if (promocion == null || cantidad < promocion.getCantidadRequerida()) {
-            return new DetalleCalculado(precio, cantidad, precioUnitario, 0, cantidad, null, null, subtotalLinea, subtotalLinea);
+        if (promocion == null
+                || cantidad < promocion.getCantidadRequerida()
+                || (TIPO_TRABAJADOR.equals(tipoComprador)
+                    && promocionGeneral == null
+                    && !beneficioTrabajadorDisponible)) {
+            return new DetalleCalculado(
+                    precio,
+                    cantidad,
+                    precioUnitario,
+                    0,
+                    cantidad,
+                    null,
+                    null,
+                    false,
+                    subtotalLinea,
+                    subtotalLinea);
         }
 
         int conjuntosPromocion = cantidad / promocion.getCantidadRequerida();
+        boolean consumeBeneficioTrabajador = TIPO_TRABAJADOR.equals(tipoComprador) && promocionGeneral == null;
+        if (consumeBeneficioTrabajador) {
+            conjuntosPromocion = Math.min(conjuntosPromocion, 1);
+        }
         int cantidadConPromocion = conjuntosPromocion * promocion.getCantidadRequerida();
         int cantidadSinPromocion = cantidad - cantidadConPromocion;
         BigDecimal totalPromocional = normalizarMoneda(
@@ -297,6 +359,7 @@ public class VentasService {
                 cantidadSinPromocion,
                 normalizarMoneda(promocion.getValorPromocional()),
                 promocion,
+                consumeBeneficioTrabajador,
                 subtotalLinea,
                 totalLinea);
     }
@@ -489,6 +552,7 @@ public class VentasService {
             Integer cantidadSinPromocion,
             BigDecimal valorPromocionalAplicado,
             Promocion promocionAplicada,
+            boolean consumeBeneficioTrabajador,
             BigDecimal subtotalLinea,
             BigDecimal totalLinea
     ) {

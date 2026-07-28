@@ -5,6 +5,7 @@ import java.util.UUID;
 public record TrabajadorVentaResponse(
         UUID idUsuario,
         String nombreUsuario,
-        String nombreCompleto
+        String nombreCompleto,
+        boolean beneficioPromocionDisponible
 ) {
 }

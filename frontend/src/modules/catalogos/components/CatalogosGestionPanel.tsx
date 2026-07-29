@@ -330,7 +330,7 @@ export function CatalogosGestionPanel({ catalogos, onCatalogosChanged, token }: 
               <div className="field-control plain">
                 <select value={itemForm.idCategoriaInventario} onChange={(event) => setItemForm((current) => ({ ...current, idCategoriaInventario: event.target.value }))} required>
                   <option value="" disabled>Selecciona categoria</option>
-                  {categoriasConsumibles.map((categoria) => <option key={categoria.id} value={categoria.id}>{categoria.nombre}</option>)}
+                  {categoriasConsumibles.map((categoria) => <option key={categoria.id} value={categoria.id}>{formatDisplayName(categoria.nombre)}</option>)}
                 </select>
               </div>
             </label>
@@ -396,7 +396,7 @@ export function CatalogosGestionPanel({ catalogos, onCatalogosChanged, token }: 
                 <button className={`catalog-management-row ${selectedItem?.idItemInventario === item.idItemInventario ? "selected" : ""}`} type="button" onClick={() => seleccionarItem(item)} aria-pressed={selectedItem?.idItemInventario === item.idItemInventario}>
                   <span>
                     <strong>{item.nombreItem}</strong>
-                    <small>{item.nombreCategoria} · {item.nombreUnidad}{item.onzas ? ` · ${item.onzas} oz` : ""}</small>
+                    <small>{formatDisplayName(item.nombreCategoria)} · {item.nombreUnidad}{item.onzas ? ` · ${item.onzas} oz` : ""}</small>
                   </span>
                   <b className={`catalog-status ${item.estado}`}>{statusLabel(item.estado)}</b>
                   <Pencil size={17} aria-hidden="true" />

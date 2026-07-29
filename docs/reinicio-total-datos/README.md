@@ -1,283 +1,283 @@
-# Reinicio total de PostgreSQL y Storage
+# Reinicio total local de PostgreSQL y Storage
 
 ## Objetivo
 
-Eliminar todos los datos de Kontora POS y comenzar nuevamente con:
+Este procedimiento elimina todos los datos locales de Kontora POS y reconstruye
+el sistema desde cero con:
 
-- una base PostgreSQL creada desde cero por Flyway;
-- el esquema de Supabase Storage creado desde cero;
-- el bucket privado configurado en `SUPABASE_STORAGE_BUCKET`;
-- cero objetos dentro del bucket;
-- un único gerente inicial creado por el backend.
+- una base PostgreSQL nueva, creada por Flyway;
+- el esquema de Supabase Storage nuevo;
+- el bucket privado `kontoraimagenes` vacío;
+- un único gerente inicial;
+- backend, frontend y Cloudflare Tunnel funcionando nuevamente.
 
-Este procedimiento elimina usuarios, ventas, cajas, inventario, auditoría,
-metadatos de evidencias y archivos almacenados. No sirve para cambiar solamente
-una contraseña ni para recuperar servicios detenidos.
+El reinicio elimina usuarios, credenciales, ventas, cajas, inventario,
+auditoría, metadatos de evidencias y archivos almacenados.
 
-## Aclaración sobre el usuario root inicial
+> **Advertencia:** este proceso es irreversible cuando se ejecuta sin respaldo.
+> Está diseñado para Windows local con `infra/compose.local.yml`. No se debe
+> copiar tal cual en un VPS de producción.
 
-Kontora no necesita ni debe versionar un archivo `root`, un SQL con
-credenciales o una contraseña predeterminada. El equivalente funcional es el
-**gerente inicial**, que el backend crea al arrancar contra una tabla
-`usuarios` vacía.
+## Alcance y valores predeterminados
 
-La configuración vive únicamente en `infra/.env`, que está ignorado por Git:
+Ejecutar todos los comandos desde:
 
-```env
-BOOTSTRAP_MANAGER_ENABLED=true
-BOOTSTRAP_MANAGER_USERNAME=gerenteLocal
-BOOTSTRAP_MANAGER_FULL_NAME=Gerente Local
-BOOTSTRAP_MANAGER_PASSWORD=<CONTRASENA-TEMPORAL-SEGURA>
+```powershell
+C:\Users\corre\Documentos\kontora
 ```
 
-Si se requiere que el nombre de inicio de sesión sea literalmente `root`, se
-puede usar:
+Los valores predeterminados del entorno local son:
 
-```env
-BOOTSTRAP_MANAGER_USERNAME=root
-```
+| Recurso | Valor |
+| --- | --- |
+| Base | `kontora_pos` |
+| Usuario PostgreSQL | `kontora_pos` |
+| Volumen PostgreSQL | `kontora_pos_postgres_local_data` |
+| Volumen de archivos Storage | `kontora_pos_storage_local_data` |
+| Bucket privado | `kontoraimagenes` |
+| Archivo Compose | `infra\compose.local.yml` |
+| Variables del entorno | `infra\.env` |
 
-Ese usuario sigue siendo un usuario de la aplicación con rol `gerente`; no es
-el usuario `root` de Linux ni un superusuario de PostgreSQL. La contraseña debe
-tener entre 8 y 72 caracteres y nunca debe guardarse en este README, en Git ni
-en un archivo SQL.
+Si `infra/.env` contiene nombres diferentes, se deben sustituir en todos los
+comandos de inspección y eliminación.
 
 ## Reglas obligatorias
 
-1. Ejecutar una sola variante: **Windows local** o **VPS de producción**.
-2. Ejecutar los comandos desde la raíz del repositorio y en el orden indicado.
-3. Si un comando falla, no ejecutar el siguiente hasta resolver el error.
-4. Confirmar los nombres reales de los dos volúmenes antes de eliminarlos.
-5. Mantener juntos el respaldo PostgreSQL y el respaldo del volumen Storage.
-6. En producción, no eliminar los volúmenes anteriores hasta completar todas
-   las validaciones y probar el inicio de sesión.
-7. No regenerar `STORAGE_JWT_SECRET` y `STORAGE_SERVICE_ROLE_KEY` por separado.
+1. Ejecutar los comandos en el orden indicado y uno por uno.
+2. Detenerse ante el primer error.
+3. No compartir contraseñas, tokens ni el contenido completo de `infra/.env`.
+4. Confirmar los nombres de los volúmenes antes de eliminarlos.
+5. Reiniciar PostgreSQL y Storage juntos. PostgreSQL contiene la metadata de
+   Storage, mientras los archivos viven en otro volumen.
+6. No usar `docker compose down -v`.
+7. No usar `docker volume prune`.
+8. No regenerar `STORAGE_JWT_SECRET` ni `STORAGE_SERVICE_ROLE_KEY` durante el
+   reinicio.
+9. `storage-db-init` y `storage-bucket-init` son servicios transitorios:
+   `Exited (0)` significa que terminaron correctamente.
 
-PostgreSQL contiene la metadata de Storage, pero los archivos viven en otro
-volumen. Reiniciar solamente uno de los dos deja evidencias inconsistentes.
-
-## Nombres predeterminados de los volúmenes
-
-| Entorno | PostgreSQL | Archivos de Storage |
-| --- | --- | --- |
-| Windows local | `kontora_pos_postgres_local_data` | `kontora_pos_storage_local_data` |
-| VPS producción | `kontora_pos_postgres_prod_data` | `kontora_pos_storage_prod_data` |
-
-Antes de continuar, comprobar si `infra/.env` reemplaza esos nombres.
-
-Windows:
-
-```powershell
-Select-String -Path infra\.env -Pattern '^(POSTGRES_VOLUME_NAME|STORAGE_VOLUME_NAME)='
-```
-
-VPS:
-
-```bash
-grep -E '^(POSTGRES_VOLUME_NAME|STORAGE_VOLUME_NAME)=' infra/.env
-```
-
-Todos los comandos de esta guía muestran los nombres predeterminados. Si el
-resultado anterior es diferente, sustituirlos en **todos** los comandos de
-inspección, respaldo y eliminación.
-
-Las llamadas directas a `psql` y `pg_dump` de la variante Windows usan los
-valores locales predeterminados:
-
-```env
-DB_USER=kontora_pos
-DB_NAME=kontora_pos
-```
-
-Si `infra/.env` contiene otros valores, sustituir también `-U kontora_pos` y
-`-d kontora_pos` en esos comandos. Esta forma directa evita que PowerShell
-fragmente las comillas de una orden anidada con `sh -c`.
+Si existe información que se deba conservar, detener este procedimiento y
+crear primero un respaldo coordinado de PostgreSQL y Storage. Para el flujo de
+respaldos operativos, consultar
+[`docs/panel-operaciones/README.md`](../panel-operaciones/README.md).
 
 ---
 
-## Variante A: Windows local
+## Fase 1. Comprobar el entorno
 
-Usar esta variante únicamente para el entorno definido por
-`infra/compose.local.yml`.
-
-### Fase A1. Comprobar el entorno antes del borrado
-
-Abrir Docker Desktop, entrar al repositorio y validar Compose:
+Abrir Docker Desktop y entrar al repositorio:
 
 ```powershell
 cd C:\Users\corre\Documentos\kontora
+```
+
+Comprobar Docker:
+
+```powershell
 docker info
+```
+
+Validar Compose sin imprimir secretos:
+
+```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml config --quiet
+```
+
+Revisar el estado actual:
+
+```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel ps -a
+```
+
+Confirmar los nombres configurados:
+
+```powershell
+Select-String -Path infra\.env -Pattern '^(POSTGRES_VOLUME_NAME|STORAGE_VOLUME_NAME|DB_NAME|DB_USER|SUPABASE_STORAGE_BUCKET)='
+```
+
+Inspeccionar los dos volúmenes que se eliminarán:
+
+```powershell
 docker volume inspect kontora_pos_postgres_local_data
+```
+
+```powershell
 docker volume inspect kontora_pos_storage_local_data
 ```
 
-Preparar las imágenes antes de borrar los datos:
+Preparar las imágenes antes de borrar datos:
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml pull postgres storage
+```
+
+```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml build backend frontend
 ```
 
-Criterio de cierre: todos los comandos terminan con código `0`.
+### Criterio de cierre
 
-### Fase A2. Crear un respaldo de seguridad
+- Todos los comandos terminan con código `0`.
+- Los dos volúmenes existen y coinciden con `infra/.env`.
+- Las imágenes de PostgreSQL y Storage están disponibles.
+- Backend y frontend se construyen correctamente.
 
-Si se acepta perder los datos locales sin posibilidad de recuperación, esta
-fase puede omitirse. En cualquier otro caso, crear una carpeta nueva fuera del
-repositorio y reemplazar `AAAA-MM-DD_HHMM` por la fecha y hora actuales:
+No continuar si algún punto falla.
 
-```powershell
-New-Item -ItemType Directory -Path "$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM"
-```
+---
 
-Detener el acceso a la aplicación y Storage para evitar escrituras durante el
-respaldo:
+## Fase 2. Preparar el gerente inicial
 
-```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel stop cloudflared frontend backend storage
-```
+El backend crea el gerente únicamente cuando la tabla `usuarios` está vacía y
+el bootstrap está activado.
 
-Respaldar PostgreSQL:
+Abrir el archivo:
 
 ```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres pg_dump -U kontora_pos -d kontora_pos --format=custom --schema=public --schema=storage --no-owner --no-acl --file=/tmp/kontora_pos_before_reset.dump
-docker cp kontora_pos_postgres_local:/tmp/kontora_pos_before_reset.dump "$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM\kontora_pos.dump"
-docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres rm -f /tmp/kontora_pos_before_reset.dump
+notepad infra\.env
 ```
 
-Detener PostgreSQL; después respaldar los archivos:
-
-```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml stop postgres
-docker run --rm --mount "type=volume,source=kontora_pos_storage_local_data,target=/data,readonly" --mount "type=bind,source=$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM,target=/backups" debian:bookworm-slim tar --xattrs "--xattrs-include=user.supabase.*" -czf /backups/kontora_storage.tar.gz -C /data .
-```
-
-No sustituir `debian:bookworm-slim` por una imagen Alpine. El archivo debe
-conservar `user.supabase.cache-control` y `user.supabase.content-type`; sin esos
-atributos, una restauración puede conservar el binario pero fallar al
-descargarlo desde Storage.
-
-Comprobar ambos respaldos:
-
-```powershell
-docker run --rm --mount "type=bind,source=$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM,target=/backups,readonly" postgres:16-alpine sh -c 'pg_restore --list /backups/kontora_pos.dump >/dev/null'
-docker run --rm --mount "type=bind,source=$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM,target=/backups,readonly" debian:bookworm-slim tar --xattrs "--xattrs-include=user.supabase.*" -tzf /backups/kontora_storage.tar.gz
-Get-FileHash "$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM\kontora_pos.dump"
-Get-FileHash "$env:USERPROFILE\kontora-backups\pre-reset-AAAA-MM-DD_HHMM\kontora_storage.tar.gz"
-```
-
-Criterio de cierre: `pg_restore --list` y el listado de GNU tar terminan sin
-error, y existen los dos archivos fuera del repositorio. Para aceptar el
-respaldo como restaurable en producción, además se debe restaurar la pareja en
-recursos aislados y descargar al menos una evidencia conocida.
-
-### Fase A3. Preparar el gerente inicial
-
-Editar `infra/.env` y definir:
+Configurar:
 
 ```env
 BOOTSTRAP_MANAGER_ENABLED=true
 BOOTSTRAP_MANAGER_USERNAME=gerenteLocal
 BOOTSTRAP_MANAGER_FULL_NAME=Gerente Local
-BOOTSTRAP_MANAGER_PASSWORD=<CONTRASENA-TEMPORAL-SEGURA>
+BOOTSTRAP_MANAGER_PASSWORD=<CONTRASEÑA-TEMPORAL-SEGURA>
 ```
 
-No cambiar `DB_PASSWORD`, `STORAGE_DATABASE_URL`,
-`STORAGE_JWT_SECRET` ni `STORAGE_SERVICE_ROLE_KEY` durante este reinicio.
+La contraseña debe tener entre 8 y 72 caracteres. No se debe guardar en Git,
+documentación, scripts SQL ni conversaciones.
 
-Validar otra vez la configuración:
+No modificar durante este proceso:
+
+- `DB_PASSWORD`
+- `STORAGE_DATABASE_URL`
+- `STORAGE_JWT_SECRET`
+- `STORAGE_SERVICE_ROLE_KEY`
+
+Validar Compose:
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml config --quiet
 ```
 
-No imprimir `docker compose config` sin `--quiet`, porque mostraría secretos.
+Confirmar únicamente las variables no secretas:
 
-### Fase A4. Eliminar exactamente los dos volúmenes
+```powershell
+Select-String -Path infra\.env -Pattern '^(BOOTSTRAP_MANAGER_ENABLED|BOOTSTRAP_MANAGER_USERNAME|BOOTSTRAP_MANAGER_FULL_NAME)='
+```
 
-Detener y retirar los contenedores sin borrar todavía los volúmenes:
+### Criterio de cierre
+
+- `BOOTSTRAP_MANAGER_ENABLED=true`.
+- El usuario y nombre completo son correctos.
+- `docker compose ... config --quiet` termina con código `0`.
+
+---
+
+## Fase 3. Eliminar PostgreSQL y Storage
+
+> **Punto irreversible:** los comandos `docker volume rm` eliminan
+> definitivamente la base, la metadata de Storage y los archivos del bucket.
+
+Detener el stack sin eliminar automáticamente los volúmenes:
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel down
 ```
 
-Confirmar que los objetivos existen y no están en uso:
+Confirmar que ningún contenedor continúa usando PostgreSQL:
+
+```powershell
+docker ps -a --filter volume=kontora_pos_postgres_local_data
+```
+
+Confirmar que ningún contenedor continúa usando Storage:
+
+```powershell
+docker ps -a --filter volume=kontora_pos_storage_local_data
+```
+
+Los dos comandos anteriores deben mostrar solamente el encabezado.
+
+Inspeccionar una última vez los objetivos:
 
 ```powershell
 docker volume inspect kontora_pos_postgres_local_data
+```
+
+```powershell
 docker volume inspect kontora_pos_storage_local_data
 ```
 
-Revisar visualmente que ambos nombres coincidan con `infra/.env`. Solo entonces
-ejecutar:
+Eliminar únicamente el volumen PostgreSQL confirmado:
 
 ```powershell
 docker volume rm kontora_pos_postgres_local_data
+```
+
+Eliminar únicamente el volumen de archivos Storage confirmado:
+
+```powershell
 docker volume rm kontora_pos_storage_local_data
 ```
 
-Confirmar que ya no aparecen:
+Confirmar que desaparecieron:
 
 ```powershell
 docker volume ls --filter name=kontora_pos_postgres_local_data
+```
+
+```powershell
 docker volume ls --filter name=kontora_pos_storage_local_data
 ```
 
-No usar `docker volume prune`: podría eliminar volúmenes ajenos a Kontora.
+### Criterio de cierre
 
-### Fase A5. Crear nuevamente la base y el bucket
+- Ambos comandos `docker volume rm` muestran el nombre eliminado.
+- Los dos listados finales muestran solamente el encabezado.
 
-Compose volverá a crear los volúmenes. Iniciar cada componente por separado:
+---
+
+## Fase 4. Recrear PostgreSQL, Storage y el bucket
+
+Iniciar PostgreSQL:
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml up -d postgres
+```
+
+Comprobar su estado:
+
+```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml ps postgres
 ```
 
-`postgres` debe aparecer como `healthy`. Después:
+Si aparece `health: starting`, repetir el comando anterior hasta que PostgreSQL
+muestre `healthy`. No iniciar Storage antes de ese momento.
+
+Iniciar Storage y esperar sus comprobaciones:
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml up -d --wait --wait-timeout 120 storage
-docker compose --env-file infra\.env -f infra\compose.local.yml ps -a
-docker compose --env-file infra\.env -f infra\compose.local.yml run --rm --no-deps storage-bucket-init
 ```
 
-`storage-db-init` y `storage-bucket-init` deben terminar con código `0`, y
-`storage` debe aparecer como `healthy`.
-
-No sustituir el último comando por `up storage-bucket-init`. Después de iniciar
-Storage, `up` puede volver a ejecutar la dependencia transitoria
-`storage-db-init` mientras Storage modifica el esquema `storage`. Esa carrera
-puede terminar con:
-
-```text
-psql:/opt/kontora/init-storage-roles.sql:24:
-ERROR: tuple concurrently updated
-```
-
-`run --rm --no-deps` ejecuta únicamente la creación idempotente del bucket y
-retira su contenedor temporal al finalizar.
-
-#### Recuperación si apareció `tuple concurrently updated`
-
-No borrar nuevamente los volúmenes. Primero confirmar que `postgres` y
-`storage` estén `healthy` y que el log muestre una primera ejecución completa
-de `storage-db-init` antes del error:
+Revisar los componentes creados:
 
 ```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml logs --no-color --tail=200 storage-db-init
 docker compose --env-file infra\.env -f infra\compose.local.yml ps -a
 ```
 
-Si ambos servicios están sanos y la primera ejecución completó `DO`, los tres
-`ALTER ROLE`, `CREATE SCHEMA`, los cuatro `GRANT` y los tres
-`ALTER DEFAULT PRIVILEGES`, retirar solamente los inicializadores y crear el
-bucket sin dependencias:
+El estado requerido es:
+
+- `postgres`: `healthy`;
+- `storage`: `healthy`;
+- `storage-db-init`: `Exited (0)`.
+
+Crear el bucket sin volver a ejecutar dependencias:
 
 ```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml rm -f storage-db-init storage-bucket-init
 docker compose --env-file infra\.env -f infra\compose.local.yml run --rm --no-deps storage-bucket-init
 ```
 
@@ -287,377 +287,327 @@ La salida esperada es:
 Bucket privado 'kontoraimagenes' preparado correctamente.
 ```
 
-Iniciar el backend para que Flyway cree el esquema de la aplicación y el
-bootstrap cree el gerente:
+No sustituir este comando por `up storage-bucket-init`. Después de iniciar
+Storage, `up` puede volver a ejecutar `storage-db-init` mientras Storage
+modifica el esquema y provocar:
+
+```text
+psql:/opt/kontora/init-storage-roles.sql:24:
+ERROR: tuple concurrently updated
+```
+
+### Recuperación de `tuple concurrently updated`
+
+No volver a borrar los volúmenes. Revisar:
 
 ```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml up -d --no-deps --no-build backend
-curl.exe --fail http://127.0.0.1:8080/api/health
-docker compose --env-file infra\.env -f infra\compose.local.yml up -d --no-deps --no-build frontend
+docker compose --env-file infra\.env -f infra\compose.local.yml logs --no-color --tail=200 storage-db-init
+```
+
+```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml ps -a
 ```
 
-No omitir `--no-deps`: después de preparar el bucket, iniciar la aplicación sin
-esa opción puede volver a recorrer los inicializadores de Storage. El backend se
-valida antes de arrancar el frontend para detener el procedimiento en el primer
-error.
-
-Si se usa el túnel local, iniciarlo solamente después de validar la aplicación:
+Si PostgreSQL y Storage están `healthy` y una primera ejecución de
+`storage-db-init` terminó correctamente, retirar solamente los
+inicializadores:
 
 ```powershell
-docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel up -d --no-deps cloudflared
+docker compose --env-file infra\.env -f infra\compose.local.yml rm -f storage-db-init storage-bucket-init
 ```
 
-Continuar en la sección [Validación común](#validación-común).
+Crear nuevamente el bucket sin dependencias:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml run --rm --no-deps storage-bucket-init
+```
+
+### Criterio de cierre
+
+- PostgreSQL y Storage están `healthy`.
+- `storage-db-init` terminó con `Exited (0)`.
+- El comando del bucket terminó con código `0` y mostró el mensaje esperado.
 
 ---
 
-## Variante B: VPS de producción
+## Fase 5. Iniciar backend y frontend
 
-Usar esta variante únicamente para `infra/compose.prod.yml`. El procedimiento
-crea dos volúmenes nuevos, valida el sistema y elimina los anteriores al final.
-Esto permite revertir antes de ejecutar el borrado definitivo.
+Iniciar únicamente el backend. `--no-deps` evita relanzar los inicializadores
+de Storage:
 
-### Fase B1. Comprobar el entorno y preparar imágenes
-
-```bash
-cd /opt/kontora
-docker info
-docker compose --env-file infra/.env -f infra/compose.prod.yml config --quiet
-docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel ps -a
-docker volume inspect kontora_pos_postgres_prod_data
-docker volume inspect kontora_pos_storage_prod_data
-docker compose --env-file infra/.env -f infra/compose.prod.yml pull postgres storage
-docker compose --env-file infra/.env -f infra/compose.prod.yml build backend frontend
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml up -d --no-deps --no-build backend
 ```
 
-Criterio de cierre: todos los comandos terminan con código `0`. No borrar datos
-si no están disponibles las imágenes necesarias para volver a iniciar.
+Revisar su estado:
 
-### Fase B2. Crear y comprobar el respaldo obligatorio
-
-Reemplazar `AAAA-MM-DD_HHMM` por la fecha y hora actuales:
-
-```bash
-sudo install -d -m 700 -o "$USER" -g "$USER" /var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml ps backend
 ```
 
-Detener el acceso a la aplicación y Storage:
+Revisar Flyway, el arranque y el bootstrap:
 
-```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel stop cloudflared frontend backend storage
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml logs --no-color --tail=100 backend
 ```
 
-Respaldar PostgreSQL:
+Los logs deben mostrar:
 
-```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --schema=public --schema=storage --no-owner --no-acl --file=/tmp/kontora_pos_before_reset.dump'
-docker cp kontora_pos_postgres:/tmp/kontora_pos_before_reset.dump /var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM/kontora_pos.dump
-docker compose --env-file infra/.env -f infra/compose.prod.yml exec -T postgres rm -f /tmp/kontora_pos_before_reset.dump
+- las migraciones aplicadas correctamente;
+- `Started KontoraPosApplication`;
+- la creación del gerente inicial.
+
+No deben mostrar `Migration failed`, `Application run failed` ni errores de
+arranque.
+
+Comprobar la API:
+
+```powershell
+curl.exe --fail http://127.0.0.1:8080/api/health
 ```
 
-Detener PostgreSQL; después respaldar los archivos:
+La salida esperada es:
 
-```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml stop postgres
-docker run --rm \
-  --mount type=volume,source=kontora_pos_storage_prod_data,target=/data,readonly \
-  --mount type=bind,source=/var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM,target=/backups \
-  debian:bookworm-slim \
-  tar --xattrs '--xattrs-include=user.supabase.*' -czf /backups/kontora_storage.tar.gz -C /data .
+```json
+{"status":"ok","service":"kontora-pos-backend"}
 ```
 
-No usar una imagen Alpine para este archivo: debe conservar los atributos
-extendidos `user.supabase.*`.
+Un `Empty reply from server` inmediatamente después de recrear el backend puede
+indicar que todavía está arrancando. Confirmar que el contenedor siga `Up`,
+revisar sus logs y repetir la petición solamente cuando aparezca
+`Started KontoraPosApplication`.
 
-Comprobar los respaldos:
+Iniciar el frontend:
 
-```bash
-docker run --rm \
-  --mount type=bind,source=/var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM,target=/backups,readonly \
-  postgres:16-alpine \
-  sh -c 'pg_restore --list /backups/kontora_pos.dump >/dev/null'
-
-docker run --rm \
-  --mount type=bind,source=/var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM,target=/backups,readonly \
-  debian:bookworm-slim \
-  tar --xattrs '--xattrs-include=user.supabase.*' -tzf /backups/kontora_storage.tar.gz
-
-sha256sum /var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM/kontora_pos.dump
-sha256sum /var/backups/kontora/pre-reset-AAAA-MM-DD_HHMM/kontora_storage.tar.gz
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml up -d --no-deps --no-build frontend
 ```
 
-Copiar ambos archivos y sus hashes a almacenamiento externo antes de continuar.
-Un respaldo guardado únicamente en el mismo VPS no protege ante una falla del
-servidor. En producción, aceptar la copia como restaurable únicamente después de
-restaurar ambos archivos en recursos aislados y descargar una evidencia conocida.
+Revisar el stack:
 
-### Fase B3. Detener el stack y registrar los volúmenes anteriores
-
-```bash
-cd /opt/kontora
-grep -E '^(POSTGRES_VOLUME_NAME|STORAGE_VOLUME_NAME)=' infra/.env
-docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel down
-docker volume inspect kontora_pos_postgres_prod_data
-docker volume inspect kontora_pos_storage_prod_data
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml ps -a
 ```
 
-Los dos últimos comandos deben mostrar exactamente los volúmenes que contienen
-los datos que se van a retirar. Anotar esos nombres como
-`VOLUMEN_POSTGRES_ANTERIOR` y `VOLUMEN_STORAGE_ANTERIOR`.
+Si el frontend muestra `health: starting`, repetir la consulta hasta que
+aparezca `healthy`.
 
-### Fase B4. Configurar volúmenes nuevos y el gerente inicial
+Comprobar Nginx:
 
-Editar `infra/.env`:
-
-```bash
-nano infra/.env
+```powershell
+curl.exe --fail http://127.0.0.1:8081/healthz
 ```
 
-Asignar nombres nuevos y únicos, usando la misma marca de fecha y hora en ambos:
+Comprobar el proxy hacia el backend:
 
-```env
-POSTGRES_VOLUME_NAME=kontora_pos_postgres_prod_reset_AAAAMMDDHHMM
-STORAGE_VOLUME_NAME=kontora_pos_storage_prod_reset_AAAAMMDDHHMM
-
-BOOTSTRAP_MANAGER_ENABLED=true
-BOOTSTRAP_MANAGER_USERNAME=gerenteLocal
-BOOTSTRAP_MANAGER_FULL_NAME=Gerente Local
-BOOTSTRAP_MANAGER_PASSWORD=<CONTRASENA-TEMPORAL-SEGURA>
+```powershell
+curl.exe --fail http://127.0.0.1:8081/api/health
 ```
 
-No cambiar `DB_PASSWORD`, `STORAGE_DATABASE_URL`,
-`STORAGE_JWT_SECRET` ni `STORAGE_SERVICE_ROLE_KEY` durante este reinicio.
+### Criterio de cierre
 
-Validar sin imprimir secretos:
+- El backend está `Up`.
+- El frontend está `healthy`.
+- `/healthz` responde `ok`.
+- `/api/health` responde con el estado del backend.
 
-```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml config --quiet
-grep -E '^(POSTGRES_VOLUME_NAME|STORAGE_VOLUME_NAME|BOOTSTRAP_MANAGER_ENABLED|BOOTSTRAP_MANAGER_USERNAME)=' infra/.env
-```
-
-Criterio de cierre: los dos nombres nuevos son distintos de los anteriores,
-ambos tienen la misma marca temporal y el bootstrap está activado.
-
-### Fase B5. Crear nuevamente la base y el bucket
-
-```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml up -d postgres
-docker compose --env-file infra/.env -f infra/compose.prod.yml ps postgres
-```
-
-`postgres` debe aparecer como `healthy`. Después:
-
-```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml up -d --wait --wait-timeout 120 storage
-docker compose --env-file infra/.env -f infra/compose.prod.yml ps -a
-docker compose --env-file infra/.env -f infra/compose.prod.yml run --rm --no-deps storage-bucket-init
-```
-
-`storage-db-init` y `storage-bucket-init` deben terminar con código `0`, y
-`storage` debe aparecer como `healthy`.
-
-No usar `up storage-bucket-init`: puede relanzar `storage-db-init` y competir
-con las migraciones de Storage. La ejecución con `run --rm --no-deps` evita esa
-carrera.
-
-Iniciar backend y frontend con las imágenes ya preparadas:
-
-```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml up -d --no-deps --no-build backend
-curl --fail http://127.0.0.1:8080/api/health
-docker compose --env-file infra/.env -f infra/compose.prod.yml up -d --no-deps --no-build frontend
-docker compose --env-file infra/.env -f infra/compose.prod.yml ps -a
-```
-
-No omitir `--no-deps`; evita volver a recorrer los inicializadores de Storage.
-
-No eliminar todavía los volúmenes anteriores. Continuar con la validación.
+Todavía no iniciar Cloudflare Tunnel.
 
 ---
 
-## Validación común
+## Fase 6. Validar la base, el bucket y el gerente
 
-Usar el archivo Compose correspondiente al entorno. Los ejemplos siguientes
-incluyen primero Windows y después VPS.
-
-### 1. Confirmar las migraciones Flyway
-
-Windows:
+### 6.1. Migraciones Flyway
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -U kontora_pos -d kontora_pos -c "SELECT installed_rank, version, description, success FROM flyway_schema_history ORDER BY installed_rank;"
 ```
 
-VPS:
+Todas las migraciones deben mostrar `success = t`.
 
-```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT installed_rank, version, description, success FROM flyway_schema_history ORDER BY installed_rank;"'
-```
-
-Todas las filas deben mostrar `success = t`.
-
-### 2. Confirmar el bucket nuevo y vacío
-
-Windows:
+### 6.2. Bucket privado
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X --csv -U kontora_pos -d kontora_pos -c "SELECT id, name, public, file_size_limit, allowed_mime_types FROM storage.buckets;"
+```
+
+Debe existir solamente `kontoraimagenes` y `public` debe ser `false`.
+
+### 6.3. Bucket vacío
+
+```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -A -t -U kontora_pos -d kontora_pos -c "SELECT count(*) FROM storage.objects;"
 ```
 
-VPS:
+El resultado debe ser:
 
-```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT id, name, public, file_size_limit, allowed_mime_types FROM storage.buckets;"'
-docker compose --env-file infra/.env -f infra/compose.prod.yml exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) AS objetos_almacenados FROM storage.objects;"'
+```text
+0
 ```
 
-Resultado esperado:
-
-- existe un solo bucket con el nombre de `SUPABASE_STORAGE_BUCKET`;
-- `public` es `false`;
-- `objetos_almacenados` es `0`.
-
-### 3. Confirmar el gerente inicial
-
-Windows:
+### 6.4. Gerente inicial
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -U kontora_pos -d kontora_pos -c "SELECT u.nombre_usuario, u.estado AS estado_usuario, r.nombre_rol, c.estado AS estado_credencial FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol JOIN credenciales_usuario c ON c.id_usuario = u.id_usuario;"
 ```
 
-VPS:
+Debe existir exactamente un usuario con:
 
-```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT u.nombre_usuario, u.estado AS estado_usuario, r.nombre_rol, c.estado AS estado_credencial FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol JOIN credenciales_usuario c ON c.id_usuario = u.id_usuario;"'
+- nombre `gerenteLocal`;
+- rol `gerente`;
+- usuario `activo`;
+- credencial `activa`.
+
+### 6.5. Primer inicio de sesión
+
+Abrir:
+
+```text
+http://127.0.0.1:8081/login
 ```
 
-Debe existir exactamente el usuario configurado, con rol `gerente`, usuario
-`activo` y credencial `activa`.
+Iniciar sesión con el gerente configurado. Abrir la pantalla de login no es
+suficiente: se debe ingresar al panel principal.
 
-### 4. Comprobar salud e inicio de sesión
+### Criterio de cierre
 
-Windows:
+- Flyway no tiene migraciones fallidas.
+- El bucket es privado y contiene cero objetos.
+- Existe solamente el gerente inicial esperado.
+- El inicio de sesión funciona.
+
+---
+
+## Fase 7. Desactivar el bootstrap
+
+Después de comprobar el primer inicio de sesión, abrir:
 
 ```powershell
-curl.exe --fail http://127.0.0.1:8080/api/health
-curl.exe --fail http://127.0.0.1:8081/healthz
-curl.exe --fail http://127.0.0.1:8081/api/health
+notepad infra\.env
 ```
 
-VPS:
-
-```bash
-curl --fail http://127.0.0.1:8080/api/health
-curl --fail http://127.0.0.1:8081/healthz
-curl --fail http://127.0.0.1:8081/api/health
-```
-
-Abrir `/login` e iniciar sesión con el gerente configurado. No continuar hasta
-confirmar el acceso.
-
-### 5. Desactivar el bootstrap
-
-Después del primer inicio de sesión, editar `infra/.env`:
+Cambiar únicamente:
 
 ```env
 BOOTSTRAP_MANAGER_ENABLED=false
 BOOTSTRAP_MANAGER_PASSWORD=
 ```
 
-Recrear solamente el backend.
+Confirmar sin imprimir secretos:
 
-Windows:
+```powershell
+Select-String -Path infra\.env -Pattern '^(BOOTSTRAP_MANAGER_ENABLED=false|BOOTSTRAP_MANAGER_PASSWORD=)$'
+```
+
+Validar Compose:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml config --quiet
+```
+
+Recrear solamente el backend:
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml up -d --no-deps --no-build --force-recreate backend
+```
+
+Comprobar la API:
+
+```powershell
 curl.exe --fail http://127.0.0.1:8080/api/health
 ```
 
-VPS:
+Cerrar la sesión de la aplicación e iniciar nuevamente con `gerenteLocal`. La
+cuenta debe continuar funcionando aunque el bootstrap esté desactivado.
 
-```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml up -d --no-deps --no-build --force-recreate backend
-curl --fail http://127.0.0.1:8080/api/health
+### Criterio de cierre
+
+- El bootstrap está desactivado.
+- La contraseña temporal quedó vacía en `infra/.env`.
+- El backend responde correctamente después de recrearse.
+- El gerente puede cerrar sesión y volver a ingresar.
+
+---
+
+## Fase 8. Restablecer Cloudflare Tunnel
+
+Iniciar únicamente el túnel:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel up -d --no-deps cloudflared
 ```
 
-Volver a iniciar sesión. La cuenta debe conservarse aunque el bootstrap ya esté
-desactivado.
+Revisar el stack completo:
 
-### 6. Restablecer Cloudflare Tunnel en producción
-
-Solo después de validar el acceso local del VPS:
-
-```bash
-docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel up -d --no-deps cloudflared
-docker compose --env-file infra/.env -f infra/compose.prod.yml --profile tunnel ps -a
-curl --fail https://kontora-pos.store/healthz
-curl --fail https://kontora-pos.store/api/health
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml --profile tunnel ps -a
 ```
 
-No mantener al mismo tiempo otra instalación conectada al mismo túnel y a una
-base distinta.
+Estado requerido:
 
-### 7. Eliminar los volúmenes anteriores del VPS
+- `postgres`: `healthy`;
+- `storage`: `healthy`;
+- `storage-db-init`: `Exited (0)`;
+- `backend`: `Up`;
+- `frontend`: `healthy`;
+- `cloudflared`: `Up`.
 
-Esta es la eliminación irreversible final. Ejecutarla únicamente si:
+Comprobar la URL pública:
 
-- Flyway terminó correctamente;
-- el bucket existe y contiene cero objetos;
-- el gerente inicial puede iniciar sesión;
-- el bootstrap quedó desactivado;
-- los respaldos están comprobados y copiados fuera del VPS;
-- los nombres nuevos de `infra/.env` son distintos de los anteriores.
-
-Listar los volúmenes:
-
-```bash
-docker volume ls
+```powershell
+curl.exe --fail https://kontora-pos.store/healthz
 ```
 
-Inspeccionar nuevamente los dos nombres anteriores anotados en la Fase B3:
-
-```bash
-docker volume inspect VOLUMEN_POSTGRES_ANTERIOR
-docker volume inspect VOLUMEN_STORAGE_ANTERIOR
+```powershell
+curl.exe --fail https://kontora-pos.store/api/health
 ```
 
-Confirmar que `infra/.env` ya no referencia ninguno de esos nombres. Después,
-reemplazar los marcadores y eliminar únicamente esos dos volúmenes:
+Abrir:
 
-```bash
-docker volume rm VOLUMEN_POSTGRES_ANTERIOR
-docker volume rm VOLUMEN_STORAGE_ANTERIOR
+```text
+https://kontora-pos.store/login
 ```
 
-No ejecutar `docker volume prune`.
+Confirmar que el gerente puede iniciar sesión desde la URL pública.
 
-## Criterios de cierre
+---
+
+## Lista de cierre
 
 El reinicio se considera completo solamente cuando:
 
-- PostgreSQL y Storage aparecen como `healthy`;
-- `storage-db-init` y `storage-bucket-init` terminaron con código `0`;
-- todas las migraciones Flyway tienen `success = t`;
-- existe el bucket privado configurado y `storage.objects` contiene `0` filas;
-- existe exactamente un gerente inicial activo;
-- el inicio de sesión funciona;
-- `BOOTSTRAP_MANAGER_ENABLED=false`;
-- `BOOTSTRAP_MANAGER_PASSWORD` quedó vacío;
-- en producción, el túnel responde y los volúmenes anteriores fueron eliminados
-  después de guardar los respaldos externos.
+- [ ] PostgreSQL usa un volumen nuevo y está `healthy`.
+- [ ] Storage usa un volumen nuevo y está `healthy`.
+- [ ] `storage-db-init` terminó con `Exited (0)`.
+- [ ] Todas las migraciones Flyway muestran `success = t`.
+- [ ] Existe únicamente el bucket privado `kontoraimagenes`.
+- [ ] `storage.objects` contiene `0` filas.
+- [ ] Existe exactamente un gerente inicial activo.
+- [ ] El acceso local funciona.
+- [ ] `BOOTSTRAP_MANAGER_ENABLED=false`.
+- [ ] `BOOTSTRAP_MANAGER_PASSWORD=` quedó vacío.
+- [ ] El gerente conserva el acceso después de desactivar el bootstrap.
+- [ ] Cloudflare Tunnel está `Up`.
+- [ ] La URL pública y el inicio de sesión funcionan.
 
 ## Errores frecuentes
 
-| Error | Acción |
+| Situación | Acción |
 | --- | --- |
-| `volume is in use` | Ejecutar `docker compose ... down`, comprobar `docker ps -a --filter volume=NOMBRE` y no forzar la eliminación hasta identificar el contenedor. |
-| Flyway falla | Revisar `docker compose ... logs --tail=200 backend`; no editar una migración ya versionada. |
-| Storage no queda `healthy` | Revisar `storage-db-init`, `STORAGE_DATABASE_URL` y que las dos claves Storage pertenezcan a la misma pareja. |
-| `tuple concurrently updated` en `storage-db-init` | No borrar volúmenes. Confirmar PostgreSQL y Storage sanos, retirar solo los dos inicializadores y ejecutar `run --rm --no-deps storage-bucket-init` según la recuperación de la Fase A5. |
-| PowerShell muestra `-U: not found` o `psql: option requires an argument: F` | La orden anidada con `sh -c` fue fragmentada. Usar las llamadas directas a `psql` de esta guía, sin `sh -c` ni `-F "|"`. |
-| El bucket no existe | Ejecutar `run --rm --no-deps storage-bucket-init` y exigir el mensaje de creación correcta. |
-| Hay objetos en `storage.objects` | Se está usando una base anterior o algún cliente escribió durante el reinicio; detenerse y comprobar los nombres de los volúmenes. |
-| No se crea el gerente | Confirmar que `usuarios` está vacía, el bootstrap está activo y las cuatro variables `BOOTSTRAP_MANAGER_*` son válidas. |
-| El gerente ya existe pero la contraseña no funciona | Las variables bootstrap no actualizan usuarios existentes; usar la gestión de usuarios o repetir el reinicio con la base realmente vacía. |
+| `docker` no se reconoce | Abrir Docker Desktop y una terminal nueva antes de repetir la Fase 1. |
+| `volume is in use` | No forzar la eliminación. Ejecutar `down` y consultar `docker ps -a --filter volume=NOMBRE`. |
+| `tuple concurrently updated` | No borrar los volúmenes nuevos. Aplicar la recuperación descrita en la Fase 4. |
+| `Empty reply from server` al recrear backend | Confirmar que el contenedor siga `Up`, esperar el mensaje de arranque en logs y repetir el `curl`. |
+| Flyway falla | Revisar `docker compose ... logs --tail=200 backend`; no editar migraciones ya aplicadas. |
+| El bucket no existe | Ejecutar `run --rm --no-deps storage-bucket-init`. |
+| `storage.objects` no está vacío | Detenerse y confirmar que se usan los volúmenes nuevos y que ningún cliente escribió durante el reinicio. |
+| No se crea el gerente | Confirmar tabla `usuarios` vacía y las cuatro variables `BOOTSTRAP_MANAGER_*`. |
+| La contraseña no funciona | El bootstrap no actualiza usuarios existentes; confirmar que la base realmente se recreó. |
+
+## Producción
+
+Este documento no autoriza eliminar volúmenes de producción sin respaldo. En un
+VPS se deben crear nombres nuevos para PostgreSQL y Storage, restaurar o
+inicializar sobre esos recursos, validar localmente y mediante el túnel, y
+conservar los volúmenes anteriores hasta comprobar una recuperación completa.
+Los dos recursos siempre se gestionan como una pareja.

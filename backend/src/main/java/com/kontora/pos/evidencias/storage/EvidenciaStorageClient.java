@@ -5,4 +5,6 @@ public interface EvidenciaStorageClient {
     ArchivoAlmacenado subir(String rutaArchivo, String contentType, byte[] contenido);
 
     ArchivoDescargado descargar(String urlArchivo);
+
+    void eliminar(String urlArchivo);
 }

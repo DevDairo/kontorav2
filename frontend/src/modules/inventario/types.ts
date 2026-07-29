@@ -20,6 +20,7 @@ export type ExistenciaInventarioDiario = {
   cantidadIngresada: number;
   cantidadVendida: number;
   cantidadPerdida: number;
+  cantidadCortesia: number;
   cantidadAjustada: number;
   cantidadFinalTeorica: number;
   cantidadFinalContada: number | null;
@@ -101,6 +102,40 @@ export type VentasVasosDiarias = {
   nombreTipo: string;
   onzas: number;
   vasosVendidos: number;
+};
+
+export type RegistrarPerdidaInventarioRequest = {
+  idTamanoVaso: string;
+  idPaqueteVasosAbierto?: string;
+  cantidad: number;
+  motivo: string;
+  confirmaRegistro: true;
+};
+
+export type AnularPerdidaInventarioRequest = {
+  motivoAnulacion: string;
+  confirmaVasoNoRoto: true;
+};
+
+export type PerdidaInventario = {
+  idPerdidaInventario: string;
+  idCajaDiaria: string;
+  idItemInventario: string;
+  nombreItem: string;
+  idTamanoVaso: string;
+  onzas: number;
+  idPaqueteVasosAbierto: string | null;
+  cantidad: number;
+  motivo: string;
+  idUsuarioRegistro: string;
+  nombreUsuarioRegistro: string;
+  fechaRegistro: string;
+  estado: "registrada" | "anulada";
+  idUsuarioAnulacion: string | null;
+  nombreUsuarioAnulacion: string | null;
+  fechaAnulacion: string | null;
+  motivoAnulacion: string | null;
+  evidencias: import("../evidencias/types").ArchivoEvidenciaResponse[];
 };
 
 export type InventarioSnapshot = {

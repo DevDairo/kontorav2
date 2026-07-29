@@ -5,18 +5,26 @@
 Este procedimiento elimina todos los datos locales de Kontora POS y reconstruye
 el sistema desde cero con:
 
-- una base PostgreSQL nueva, creada por Flyway;
+- una base PostgreSQL nueva, creada por Flyway mediante las migraciones V1 a V4;
 - el esquema de Supabase Storage nuevo;
 - el bucket privado `kontoraimagenes` vacío;
 - un único gerente inicial;
 - backend, frontend y Cloudflare Tunnel funcionando nuevamente.
 
 El reinicio elimina usuarios, credenciales, ventas, cajas, inventario,
-auditoría, metadatos de evidencias y archivos almacenados.
+auditoría, cortesías, pérdidas, metadatos de evidencias y archivos almacenados.
+Flyway vuelve a crear los catálogos base, los seis tamaños de vaso, los precios,
+las promociones y las existencias generales con cantidad `0`. Por tanto,
+**cero datos** significa cero información operativa; no una base sin la
+configuración mínima requerida por la aplicación.
 
 > **Advertencia:** este proceso es irreversible cuando se ejecuta sin respaldo.
 > Está diseñado para Windows local con `infra/compose.local.yml`. No se debe
 > copiar tal cual en un VPS de producción.
+
+Este procedimiento no restaura información anterior. Si el objetivo es volver a
+un estado respaldado, usar la
+[guía de respaldo y restauración](../respaldo-restauracion/README.md).
 
 ## Alcance y valores predeterminados
 
@@ -58,8 +66,8 @@ comandos de inspección y eliminación.
 
 Si existe información que se deba conservar, detener este procedimiento y
 crear primero un respaldo coordinado de PostgreSQL y Storage. Para el flujo de
-respaldos operativos, consultar
-[`docs/panel-operaciones/README.md`](../panel-operaciones/README.md).
+respaldo y su restauración completa, consultar
+[`docs/respaldo-restauracion/README.md`](../respaldo-restauracion/README.md).
 
 ---
 
@@ -423,9 +431,103 @@ Todavía no iniciar Cloudflare Tunnel.
 docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -U kontora_pos -d kontora_pos -c "SELECT installed_rank, version, description, success FROM flyway_schema_history ORDER BY installed_rank;"
 ```
 
-Todas las migraciones deben mostrar `success = t`.
+Deben aparecer exactamente las versiones `1`, `2`, `3` y `4`, todas con
+`success = t`. V3 crea las estructuras de cortesías y V4 las de pérdidas de
+vasos y sus evidencias. La devolución auditable reutiliza las estructuras de
+ajustes y movimientos creadas por V1.
 
-### 6.2. Bucket privado
+### 6.2. Estructuras nuevas y operación vacía
+
+Confirmar que las tablas nuevas existen:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -U kontora_pos -d kontora_pos -c "SELECT to_regclass('public.cortesias') AS cortesias, to_regclass('public.detalles_cortesia') AS detalles_cortesia, to_regclass('public.perdidas_inventario') AS perdidas_inventario;"
+```
+
+Las tres columnas deben mostrar el nombre de su tabla.
+
+Confirmar que los tipos de V3 y V4 quedaron en `public`, no en un esquema de
+pruebas:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -U kontora_pos -d kontora_pos -c "SELECT n.nspname AS esquema, t.typname FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.typname IN ('estado_cortesia_enum', 'tipo_beneficiario_cortesia_enum', 'estado_perdida_inventario_enum') ORDER BY n.nspname, t.typname;"
+```
+
+Se esperan tres filas y todas deben tener `esquema = public`.
+
+Validar que no exista información operativa heredada:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -U kontora_pos -d kontora_pos -c "SELECT (SELECT count(*) FROM cajas_diarias) AS cajas, (SELECT count(*) FROM ventas) AS ventas, (SELECT count(*) FROM movimientos_inventario) AS movimientos_inventario, (SELECT count(*) FROM cortesias) AS cortesias, (SELECT count(*) FROM detalles_cortesia) AS detalles_cortesia, (SELECT count(*) FROM perdidas_inventario) AS perdidas, (SELECT count(*) FROM archivos_evidencia) AS evidencias;"
+```
+
+Todos los valores deben ser `0`. Las filas de catálogos, precios, promociones y
+existencias generales en cero son datos base esperados y no representan
+operación anterior.
+
+### 6.3. Alinear las vigencias con la fecha operativa
+
+Los contenedores pueden usar UTC mientras la operación del negocio usa
+`America/Bogota`. Si el reinicio se ejecuta después de las 19:00 en Colombia,
+PostgreSQL puede sembrar precios y promociones con la fecha UTC del día
+siguiente. El backend aplica correctamente sus reglas de vigencia, pero la
+jornada local todavía consulta el día anterior y recibe listas vacías.
+
+Esta comprobación no cambia el backend, el frontend ni la lógica de ventas.
+Únicamente detecta si los datos recién sembrados comienzan un día después de la
+fecha operativa.
+
+Consultar ambas fechas, cantidades y vigencias iniciales:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -U kontora_pos -d kontora_pos -c "SELECT CURRENT_DATE AS fecha_postgres, (CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')::date AS fecha_bogota, (SELECT count(*) FROM precios_granizado) AS precios_creados, (SELECT min(fecha_inicio_vigencia) FROM precios_granizado) AS inicio_precios, (SELECT count(*) FROM promociones) AS promociones_creadas, (SELECT min(fecha_inicio_vigencia) FROM promociones) AS inicio_promociones;"
+```
+
+Si `fecha_postgres` y `fecha_bogota` coinciden, no ejecutar ninguna corrección
+y continuar con la sección 6.4.
+
+Si PostgreSQL está exactamente un día adelante, deben existir:
+
+- `12` precios creados;
+- `12` promociones creadas;
+- ambas vigencias iniciales iguales a `fecha_postgres`.
+
+Solo cuando se cumplan esas condiciones, ejecutar la siguiente transacción. Sus
+validaciones provocan un error y un rollback automático si no encuentran
+exactamente los 12 precios y las 12 promociones activas recién sembradas:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -v ON_ERROR_STOP=1 -U kontora_pos -d kontora_pos -c "BEGIN; WITH fecha AS (SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')::date AS hoy) SELECT 1 / CASE WHEN CURRENT_DATE > fecha.hoy AND (SELECT count(*) FROM precios_granizado WHERE fecha_inicio_vigencia = CURRENT_DATE AND fecha_fin_vigencia IS NULL AND estado = 'activo') = 12 THEN 1 ELSE 0 END AS validar_precios FROM fecha; WITH fecha AS (SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')::date AS hoy) SELECT 1 / CASE WHEN CURRENT_DATE > fecha.hoy AND (SELECT count(*) FROM promociones WHERE fecha_inicio_vigencia = CURRENT_DATE AND fecha_fin_vigencia IS NULL AND estado = 'activo') = 12 THEN 1 ELSE 0 END AS validar_promociones FROM fecha; UPDATE precios_granizado SET fecha_inicio_vigencia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')::date WHERE fecha_inicio_vigencia = CURRENT_DATE AND fecha_fin_vigencia IS NULL AND estado = 'activo'; UPDATE promociones SET fecha_inicio_vigencia = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')::date WHERE fecha_inicio_vigencia = CURRENT_DATE AND fecha_fin_vigencia IS NULL AND estado = 'activo'; COMMIT;"
+```
+
+La salida requerida incluye:
+
+```text
+validar_precios
+----------------
+1
+
+validar_promociones
+-------------------
+1
+
+UPDATE 12
+UPDATE 12
+COMMIT
+```
+
+Validar las reglas de vigencia para la fecha operativa:
+
+```powershell
+docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -U kontora_pos -d kontora_pos -c "WITH fecha AS (SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')::date AS hoy) SELECT fecha.hoy AS fecha_operativa, (SELECT count(*) FROM precios_granizado WHERE estado = 'activo' AND fecha_inicio_vigencia <= fecha.hoy AND (fecha_fin_vigencia IS NULL OR fecha_fin_vigencia >= fecha.hoy)) AS precios_vigentes, (SELECT count(*) FROM promociones WHERE estado = 'activo' AND fecha_inicio_vigencia <= fecha.hoy AND (fecha_fin_vigencia IS NULL OR fecha_fin_vigencia >= fecha.hoy)) AS promociones_vigentes FROM fecha;"
+```
+
+El resultado esperado es `12` precios vigentes y `12` promociones vigentes.
+No se modifican valores, estados, beneficiarios, días de promoción ni reglas de
+venta. Tampoco es necesario reconstruir contenedores; usar **Reintentar** en
+Catálogos o recargar el navegador.
+
+### 6.4. Bucket privado
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X --csv -U kontora_pos -d kontora_pos -c "SELECT id, name, public, file_size_limit, allowed_mime_types FROM storage.buckets;"
@@ -433,7 +535,7 @@ docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres
 
 Debe existir solamente `kontoraimagenes` y `public` debe ser `false`.
 
-### 6.3. Bucket vacío
+### 6.5. Bucket vacío
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -A -t -U kontora_pos -d kontora_pos -c "SELECT count(*) FROM storage.objects;"
@@ -445,7 +547,7 @@ El resultado debe ser:
 0
 ```
 
-### 6.4. Gerente inicial
+### 6.6. Gerente inicial
 
 ```powershell
 docker compose --env-file infra\.env -f infra\compose.local.yml exec -T postgres psql -X -U kontora_pos -d kontora_pos -c "SELECT u.nombre_usuario, u.estado AS estado_usuario, r.nombre_rol, c.estado AS estado_credencial FROM usuarios u JOIN roles r ON r.id_rol = u.id_rol JOIN credenciales_usuario c ON c.id_usuario = u.id_usuario;"
@@ -458,7 +560,7 @@ Debe existir exactamente un usuario con:
 - usuario `activo`;
 - credencial `activa`.
 
-### 6.5. Primer inicio de sesión
+### 6.7. Primer inicio de sesión
 
 Abrir:
 
@@ -471,7 +573,10 @@ suficiente: se debe ingresar al panel principal.
 
 ### Criterio de cierre
 
-- Flyway no tiene migraciones fallidas.
+- Flyway muestra V1, V2, V3 y V4 sin fallos.
+- Las tablas y tipos de cortesías y pérdidas existen en `public`.
+- Cajas, ventas, movimientos, cortesías, pérdidas y evidencias están vacíos.
+- La fecha operativa reconoce `12` precios y `12` promociones vigentes.
 - El bucket es privado y contiene cero objetos.
 - Existe solamente el gerente inicial esperado.
 - El inicio de sesión funciona.
@@ -579,7 +684,10 @@ El reinicio se considera completo solamente cuando:
 - [ ] PostgreSQL usa un volumen nuevo y está `healthy`.
 - [ ] Storage usa un volumen nuevo y está `healthy`.
 - [ ] `storage-db-init` terminó con `Exited (0)`.
-- [ ] Todas las migraciones Flyway muestran `success = t`.
+- [ ] Flyway muestra exactamente V1, V2, V3 y V4 con `success = t`.
+- [ ] Los tipos de cortesías y pérdidas existen únicamente en `public`.
+- [ ] Cajas, ventas, movimientos, cortesías, pérdidas y evidencias contienen `0` filas.
+- [ ] La fecha operativa reconoce `12` precios y `12` promociones vigentes.
 - [ ] Existe únicamente el bucket privado `kontoraimagenes`.
 - [ ] `storage.objects` contiene `0` filas.
 - [ ] Existe exactamente un gerente inicial activo.
@@ -599,6 +707,9 @@ El reinicio se considera completo solamente cuando:
 | `tuple concurrently updated` | No borrar los volúmenes nuevos. Aplicar la recuperación descrita en la Fase 4. |
 | `Empty reply from server` al recrear backend | Confirmar que el contenedor siga `Up`, esperar el mensaje de arranque en logs y repetir el `curl`. |
 | Flyway falla | Revisar `docker compose ... logs --tail=200 backend`; no editar migraciones ya aplicadas. |
+| No aparecen V3 o V4 | La imagen del backend está desactualizada. Detenerse, reconstruirla desde el código actual y repetir desde la Fase 5; no crear tablas o tipos manualmente. |
+| Los tipos V3 o V4 aparecen en un esquema de pruebas | Detenerse. No iniciar la operación; confirmar que se usa la base `kontora_pos` recién creada y revisar los logs de Flyway. |
+| Precios y promociones aparecen en `0` después del reinicio | Comparar UTC con `America/Bogota` y aplicar únicamente la transacción protegida de la sección 6.3 cuando existan exactamente 12 y 12 registros recién sembrados. |
 | El bucket no existe | Ejecutar `run --rm --no-deps storage-bucket-init`. |
 | `storage.objects` no está vacío | Detenerse y confirmar que se usan los volúmenes nuevos y que ningún cliente escribió durante el reinicio. |
 | No se crea el gerente | Confirmar tabla `usuarios` vacía y las cuatro variables `BOOTSTRAP_MANAGER_*`. |
@@ -610,4 +721,8 @@ Este documento no autoriza eliminar volúmenes de producción sin respaldo. En u
 VPS se deben crear nombres nuevos para PostgreSQL y Storage, restaurar o
 inicializar sobre esos recursos, validar localmente y mediante el túnel, y
 conservar los volúmenes anteriores hasta comprobar una recuperación completa.
-Los dos recursos siempre se gestionan como una pareja.
+Los dos recursos siempre se gestionan como una pareja. La lógica y las
+validaciones de recuperación están descritas en la
+[guía de respaldo y restauración](../respaldo-restauracion/README.md), pero sus
+nombres de volumen, rutas y archivos Compose se deben adaptar al entorno de
+producción antes de ejecutar cualquier comando.

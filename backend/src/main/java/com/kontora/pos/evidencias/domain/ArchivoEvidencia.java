@@ -3,6 +3,7 @@ package com.kontora.pos.evidencias.domain;
 import com.kontora.pos.caja.domain.GastoCaja;
 import com.kontora.pos.deposito.domain.ConsignacionBancaria;
 import com.kontora.pos.deposito.domain.PagoServicio;
+import com.kontora.pos.inventario.domain.PerdidaInventario;
 import com.kontora.pos.usuarios.domain.Usuario;
 import com.kontora.pos.ventas.domain.PagoVenta;
 import jakarta.persistence.Column;
@@ -44,6 +45,10 @@ public class ArchivoEvidencia {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "id_pago_servicio")
     private PagoServicio pagoServicio;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_perdida_inventario")
+    private PerdidaInventario perdidaInventario;
 
     @Column(name = "url_archivo", nullable = false)
     private String urlArchivo;
@@ -113,6 +118,14 @@ public class ArchivoEvidencia {
 
     public void setPagoServicio(PagoServicio pagoServicio) {
         this.pagoServicio = pagoServicio;
+    }
+
+    public PerdidaInventario getPerdidaInventario() {
+        return perdidaInventario;
+    }
+
+    public void setPerdidaInventario(PerdidaInventario perdidaInventario) {
+        this.perdidaInventario = perdidaInventario;
     }
 
     public String getUrlArchivo() {

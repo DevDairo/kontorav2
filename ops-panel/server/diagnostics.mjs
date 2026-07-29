@@ -57,6 +57,12 @@ const volumeDefaults = [
     envName: "OPS_AUDIT_VOLUME",
     localName: "kontora_ops_audit_local_data",
   },
+  {
+    id: "ops-backups",
+    label: "Respaldos locales",
+    envName: "OPS_BACKUP_VOLUME",
+    localName: "kontora_ops_backups_local_data",
+  },
 ];
 
 function envValue(env, key, fallback) {

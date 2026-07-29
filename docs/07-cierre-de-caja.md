@@ -17,6 +17,8 @@ Consolidar la jornada, comparar el efectivo contado con el esperado, registrar d
 - Confirmacion antes de cerrar.
 - Consulta persistente del ultimo cierre y consulta historica por fecha.
 - Refresco de valores al abrir una nueva caja.
+- Permite cerrar aunque una pérdida de vasos conserve evidencia fotográfica
+  pendiente.
 
 ## Permisos
 
@@ -33,6 +35,10 @@ Consolidar la jornada, comparar el efectivo contado con el esperado, registrar d
 - Una caja puede cerrarse sin ventas si cumple los requisitos operativos.
 - La base no se deposita.
 - El cierre bloquea nuevas ventas y anulaciones de la jornada.
+- El cierre no descuenta ni restaura inventario. Ventas, cortesías, pérdidas y
+  devoluciones ya modificaron el stock en el momento de su registro.
+- La evidencia de una pérdida puede completarse después del cierre por
+  administrador o gerente.
 - Si hay efectivo disponible, se crea el movimiento de deposito correspondiente.
 
 ## Endpoints principales

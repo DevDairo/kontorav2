@@ -8,7 +8,7 @@
     <title>Kontora POS · Operaciones</title>
     <meta
       name="description"
-      content="Panel de operaciones y diagnóstico de solo lectura para Kontora POS."
+      content="Panel de diagnóstico y operaciones controladas para Kontora POS."
     />
     <link rel="stylesheet" href="/styles.css" />
   </head>
@@ -41,13 +41,16 @@
             <span class="menu-label">Bitácora</span>
           </button>
 
-          <span class="menu-section-label">Próximas fases</span>
+          <span class="menu-section-label">Operaciones controladas</span>
 
           <button type="button" data-view="backups">
             <span class="menu-icon" aria-hidden="true">↥</span>
             <span class="menu-label">Respaldos</span>
-            <span class="menu-tag">Próximo</span>
+            <span class="menu-tag active-phase">Fase 2</span>
           </button>
+
+          <span class="menu-section-label">Próximas fases</span>
+
           <button type="button" data-view="exports">
             <span class="menu-icon" aria-hidden="true">⇩</span>
             <span class="menu-label">Exportaciones</span>
@@ -69,7 +72,7 @@
           <span class="status-dot"></span>
           <span>
             <strong>Modo seguro</strong>
-            <small>Solo lectura</small>
+            <small>Operaciones limitadas</small>
           </span>
         </div>
       </aside>
@@ -105,7 +108,7 @@
               <span class="avatar" aria-hidden="true">O</span>
               <span>
                 <strong id="operatorName">Operador</strong>
-                <small id="operatorMode">Solo lectura</small>
+                <small id="operatorMode">Operaciones controladas</small>
               </span>
             </div>
             <button
@@ -394,15 +397,67 @@
                 <h1>Respaldos</h1>
                 <p class="lead">Copias coordinadas de PostgreSQL y Storage con verificación.</p>
               </div>
+              <button id="createBackupButton" class="primary-button" type="button">
+                Crear respaldo
+              </button>
             </div>
-            <section class="future-panel">
-              <span class="future-icon">↥</span>
-              <h2>Módulo todavía bloqueado</h2>
-              <p>
-                Se habilitará únicamente después de cerrar las comprobaciones internas
-                de solo lectura.
-              </p>
-              <span class="badge warning">Próxima fase</span>
+
+            <section class="backup-summary-grid" aria-label="Resumen de respaldos">
+              <article class="integrity-card">
+                <div class="integrity-card-heading">
+                  <strong>Paquetes locales</strong>
+                  <span class="badge success">Volumen separado</span>
+                </div>
+                <span id="backupTotal" class="integrity-card-value">—</span>
+                <small id="backupTotalDetail">Esperando primera lectura</small>
+              </article>
+              <article class="integrity-card">
+                <div class="integrity-card-heading">
+                  <strong>Trabajo activo</strong>
+                  <span id="backupActiveBadge" class="badge success">Libre</span>
+                </div>
+                <span id="backupActive" class="integrity-card-value">Ninguno</span>
+                <small>Solo se permite un trabajo a la vez</small>
+              </article>
+              <article class="integrity-card">
+                <div class="integrity-card-heading">
+                  <strong>Copia externa</strong>
+                  <span class="badge warning">Pendiente</span>
+                </div>
+                <span class="integrity-card-value">Fase 2B</span>
+                <small>Cifrado y destino externo todavía no habilitados</small>
+              </article>
+              <article class="integrity-card">
+                <div class="integrity-card-heading">
+                  <strong>Restauración aislada</strong>
+                  <span class="badge warning">Pendiente</span>
+                </div>
+                <span class="integrity-card-value">Fase 2C</span>
+                <small>Ninguna copia se declara restaurable antes de esa prueba</small>
+              </article>
+            </section>
+
+            <div id="backupNotice" class="operation-notice">
+              <strong>Interrupción controlada</strong>
+              <span>
+                Al crear un respaldo, el POS se detiene temporalmente y el ejecutor
+                restablece únicamente los servicios que estaban activos.
+              </span>
+            </div>
+
+            <section class="panel backup-list-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Más recientes primero</p>
+                  <h2>Paquetes generados</h2>
+                </div>
+                <button id="refreshBackupsButton" class="text-button" type="button">
+                  Actualizar
+                </button>
+              </div>
+              <div id="backupsList" class="backup-list" aria-live="polite">
+                <div class="empty-state">Consultando respaldos…</div>
+              </div>
             </section>
           </section>
 
@@ -466,7 +521,7 @@
 
         <footer class="app-footer">
           <span>Kontora POS · Panel independiente de operaciones</span>
-          <span>Sin acciones destructivas habilitadas</span>
+          <span>Respaldos controlados · sin restauración ni eliminación habilitadas</span>
         </footer>
       </div>
     </div>
@@ -498,6 +553,35 @@
         </label>
         <p id="authError" class="auth-error" role="alert"></p>
         <button class="primary-button full-width" type="submit">Ingresar</button>
+      </form>
+    </dialog>
+
+    <dialog id="backupDialog" class="auth-dialog">
+      <form id="backupForm" method="dialog">
+        <p class="eyebrow">Confirmación operativa</p>
+        <h2>Crear respaldo coordinado</h2>
+        <p>
+          El POS no estará disponible durante algunos minutos. La operación generará
+          el dump, archivará Storage, calculará hashes y restaurará los servicios.
+        </p>
+        <label>
+          Escribe RESPALDAR para continuar
+          <input
+            id="backupConfirmationInput"
+            name="confirmation"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            required
+          />
+        </label>
+        <p id="backupError" class="auth-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="cancelBackupButton" class="secondary-button" type="button">
+            Cancelar
+          </button>
+          <button class="primary-button" type="submit">Iniciar respaldo</button>
+        </div>
       </form>
     </dialog>
 

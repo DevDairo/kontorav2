@@ -13,6 +13,7 @@ public record ExistenciaInventarioDiarioResponse(
         Integer cantidadIngresada,
         Integer cantidadVendida,
         Integer cantidadPerdida,
+        Integer cantidadCortesia,
         Integer cantidadAjustada,
         Integer cantidadFinalTeorica,
         Integer cantidadFinalContada,

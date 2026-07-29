@@ -255,7 +255,8 @@ class ConsultasOperativasIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(tokenVendedor)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].nombreItem", hasItem("vaso_8oz")))
-                .andExpect(jsonPath("$[*].cantidadActualGeneral", hasItem(25)));
+                .andExpect(jsonPath("$[*].cantidadActualGeneral", hasItem(25)))
+                .andExpect(jsonPath("$[*].cantidadCortesiaDiaria", hasItem(0)));
 
         mockMvc.perform(get("/api/consultas/inventario/movimientos")
                         .param("fechaInicio", FECHA_CAJA.toString())

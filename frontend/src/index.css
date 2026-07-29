@@ -1544,6 +1544,79 @@ h3 {
   align-items: start;
 }
 
+.ventas-view-tabs {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  overflow-x: auto;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ventas-view-tabs button {
+  display: inline-flex;
+  min-width: 118px;
+  min-height: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 16px;
+  font: inherit;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+  scroll-snap-align: start;
+}
+
+.ventas-view-tabs button + button {
+  border-left: 1px solid var(--line);
+}
+
+.ventas-view-tabs button:hover {
+  background: #f6f9fe;
+  color: var(--primary);
+}
+
+.ventas-view-tabs button.active {
+  background: #eef5ff;
+  color: var(--primary);
+}
+
+.ventas-view-tabs button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--primary);
+  outline-offset: -3px;
+}
+
+.ventas-view-content {
+  display: grid;
+  min-width: 0;
+  gap: 18px;
+}
+
+.ventas-view-content > .venta-result,
+.ventas-view-content > .venta-cancellation-panel,
+.ventas-view-content > .ventas-additions-panel,
+.ventas-view-content > .courtesy-panel {
+  margin-top: 0;
+}
+
+.ventas-view-alert {
+  margin-bottom: 18px;
+}
+
 .ventas-additions-panel,
 .ventas-additions-form {
   display: grid;
@@ -1739,7 +1812,21 @@ h3 {
   gap: 10px;
 }
 
+.sale-cancellation-selector .inventory-item-options {
+  max-height: 480px;
+}
+
+.sale-cancellation-fields,
+.sale-cancellation-summary > div {
+  min-width: 0;
+}
+
 @media (max-width: 640px) {
+  .ventas-view-tabs button {
+    min-width: 118px;
+    padding-inline: 12px;
+  }
+
   .venta-cancellation-summary {
     grid-template-columns: 1fr;
   }
@@ -1833,8 +1920,8 @@ h3 {
 
 .inventory-view-tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  width: min(100%, 1080px);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  width: 100%;
   margin-bottom: 0;
 }
 
@@ -2020,6 +2107,478 @@ h3 {
   gap: 14px;
 }
 
+.operation-panel {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.operation-form {
+  display: grid;
+  gap: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.operation-form-grid,
+.operation-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.operation-form-wide {
+  grid-column: 1 / -1;
+}
+
+.operation-field-group {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+}
+
+.operation-field-title {
+  color: #273354;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.operation-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 8px;
+}
+
+.operation-choice-grid.two-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.operation-choice-grid button {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: #273354;
+  padding: 9px 11px;
+  font: inherit;
+  font-weight: 800;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.operation-choice-grid button:hover {
+  border-color: #a9c5ef;
+  background: #f4f8ff;
+}
+
+.operation-choice-grid button.selected {
+  border-color: var(--primary);
+  background: #eaf2ff;
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.operation-choice-grid.cup-size-grid button {
+  display: grid;
+  gap: 3px;
+  text-align: center;
+}
+
+.operation-choice-grid button small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.operation-add-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(120px, 0.3fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.operation-detail-list,
+.operation-record-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.operation-detail-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 40px;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcff;
+  padding: 10px 12px;
+}
+
+.operation-detail-list strong,
+.operation-detail-list small {
+  display: block;
+}
+
+.operation-detail-list small {
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.operation-history-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.operation-history-heading h3,
+.operation-history-heading p {
+  margin: 0;
+}
+
+.operation-history-heading h3 {
+  color: #273354;
+  font-size: 1rem;
+}
+
+.operation-history-heading p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.operation-record-list > li {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcff;
+  padding: 12px;
+}
+
+.operation-record-main {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.operation-record-main strong,
+.operation-record-main small {
+  display: block;
+}
+
+.operation-record-main small,
+.operation-record-list > li > p {
+  color: var(--muted);
+}
+
+.operation-record-main small {
+  margin-top: 3px;
+}
+
+.operation-record-list > li > p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.operation-record-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.operation-record-actions input {
+  width: 100%;
+  min-width: 0;
+}
+
+.operation-record-actions.evidence-actions {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.loss-evidence-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #315d9c;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.loss-filter-form {
+  grid-template-columns: repeat(2, minmax(170px, 0.35fr)) auto;
+  margin: 0;
+}
+
+.inventory-workspace-form {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.95fr) minmax(320px, 1.05fr);
+  align-items: start;
+  gap: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.inventory-workspace-form > * {
+  min-width: 0;
+}
+
+.inventory-workspace-form > .inventory-item-selector {
+  grid-column: 1;
+  grid-row: 1 / 3;
+}
+
+.inventory-workspace-form > .inventory-action-fields {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.inventory-workspace-actions {
+  display: flex;
+  grid-column: 2;
+  grid-row: 2;
+  justify-content: flex-end;
+}
+
+.inventory-workspace-submit {
+  width: min(100%, 240px);
+  align-self: start;
+}
+
+.courtesy-add-row {
+  grid-template-columns: minmax(120px, 0.35fr) auto;
+  justify-content: start;
+}
+
+.courtesy-detail-empty {
+  margin: 0;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.courtesy-registration-submit {
+  width: min(100%, 280px);
+}
+
+.loss-registration-evidence,
+.loss-evidence-upload,
+.loss-evidence-gallery,
+.loss-cancellation-workspace,
+.loss-record-reason {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 12px;
+}
+
+.loss-registration-evidence-heading,
+.loss-evidence-upload > div:first-child,
+.loss-evidence-gallery-heading {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.loss-registration-evidence-heading {
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+}
+
+.loss-registration-evidence-heading svg {
+  color: var(--primary);
+}
+
+.loss-registration-evidence-heading strong,
+.loss-registration-evidence-heading small,
+.loss-evidence-upload strong,
+.loss-evidence-upload small,
+.loss-evidence-gallery-heading strong,
+.loss-evidence-gallery-heading small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.loss-registration-evidence-heading small,
+.loss-evidence-upload small,
+.loss-evidence-gallery-heading small {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.loss-history-workspace {
+  display: grid;
+  grid-template-columns: minmax(330px, 0.85fr) minmax(0, 1.15fr);
+  align-items: start;
+  gap: 18px;
+}
+
+.loss-history-selector {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
+
+.loss-history-selector .loss-filter-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.loss-history-selector .loss-filter-form > .ghost-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.loss-record-table {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.loss-record-table-header,
+.loss-record-options > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(96px, auto);
+  align-items: center;
+  gap: 12px;
+}
+
+.loss-record-table-header {
+  background: #f1f5fb;
+  color: var(--muted);
+  padding: 9px 12px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.loss-record-table-header span:last-child {
+  text-align: right;
+}
+
+.loss-record-options {
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.loss-record-options > button {
+  width: 100%;
+  min-height: 68px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.loss-record-options > button:first-child {
+  border-top: 0;
+}
+
+.loss-record-options > button:hover {
+  background: #f6f9fe;
+}
+
+.loss-record-options > button.selected {
+  background: #eaf2ff;
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.loss-record-options > button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.loss-record-identity,
+.loss-record-support {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.loss-record-identity strong,
+.loss-record-identity small,
+.loss-record-support small {
+  overflow-wrap: anywhere;
+}
+
+.loss-record-identity small,
+.loss-record-support small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.loss-record-support {
+  justify-items: end;
+}
+
+.loss-evidence-workspace {
+  display: grid;
+  min-width: 0;
+  min-height: 420px;
+  align-content: start;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 14px;
+}
+
+.loss-record-reason span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.loss-record-reason p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.loss-cancellation-workspace {
+  border-color: #ffd5d9;
+  background: #fff8f8;
+}
+
+.inventory-return-equivalence {
+  margin: 0;
+  border: 1px solid #cfe0fb;
+  border-radius: 8px;
+  background: #f4f8ff;
+  color: #315d9c;
+  padding: 9px 11px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
 .inventory-entry-mode {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2154,7 +2713,7 @@ h3 {
 
 .inventory-row dl {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   margin: 0;
 }
@@ -3230,6 +3789,18 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .inventory-view-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .inventory-view-tabs button:nth-child(n + 5) {
+    border-top: 1px solid var(--line);
+  }
+
+  .inventory-view-tabs button:nth-child(5) {
+    border-left: 0;
+  }
+
   .catalog-summary-grid,
   .catalog-panel-grid {
     grid-template-columns: 1fr;
@@ -3240,10 +3811,19 @@ h3 {
     grid-template-rows: auto;
   }
 
+  .inventory-workspace-form,
+  .loss-history-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .inventory-action-form > .panel-title,
   .inventory-action-form > .primary-button,
   .inventory-item-selector,
-  .inventory-action-fields {
+  .inventory-action-fields,
+  .inventory-workspace-actions,
+  .inventory-workspace-form > .inventory-item-selector,
+  .inventory-workspace-form > .inventory-action-fields,
+  .inventory-workspace-form > .inventory-workspace-actions {
     grid-column: auto;
     grid-row: auto;
   }
@@ -3364,6 +3944,54 @@ h3 {
   .gasto-row,
   .adjustment-actions {
     grid-template-columns: 1fr;
+  }
+
+  .operation-form-grid,
+  .operation-selector-grid,
+  .operation-add-row,
+  .operation-record-actions,
+  .operation-record-actions.evidence-actions,
+  .loss-filter-form {
+    grid-template-columns: 1fr;
+  }
+
+  .operation-form-wide {
+    grid-column: auto;
+  }
+
+  .operation-history-heading,
+  .operation-record-main {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .operation-history-heading .ghost-button,
+  .operation-record-actions .danger-button,
+  .operation-record-actions .ghost-button {
+    width: 100%;
+  }
+
+  .inventory-workspace-actions,
+  .inventory-workspace-submit {
+    width: 100%;
+  }
+
+  .loss-history-selector .loss-filter-form {
+    grid-template-columns: 1fr;
+  }
+
+  .loss-history-selector .loss-filter-form > .ghost-button {
+    grid-column: auto;
+    width: 100%;
+  }
+
+  .operation-detail-list > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .operation-detail-list .quantity-stepper,
+  .operation-detail-list .icon-button {
+    width: 100%;
   }
 
   .venta-line {
@@ -4203,6 +4831,14 @@ h3 {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.consultas-record-row.novedades {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.consultas-record-row.novedades.perdida {
+  grid-template-columns: minmax(0, 1fr) minmax(190px, auto) auto auto;
+}
+
 .consultas-inventario-wide {
   grid-column: 1 / -1;
 }
@@ -4966,7 +5602,9 @@ h3 {
   .consultas-record-row.movimientos,
   .consultas-record-row.deposito,
   .consultas-record-row.inventario,
-  .consultas-record-row.ventas-vasos {
+  .consultas-record-row.ventas-vasos,
+  .consultas-record-row.novedades,
+  .consultas-record-row.novedades.perdida {
     grid-template-columns: 1fr;
   }
 
@@ -5021,6 +5659,7 @@ h3 {
     z-index: 30;
     min-height: 64px;
     justify-content: space-between;
+    background: var(--surface);
     padding: 0 18px;
   }
 
@@ -5133,16 +5772,25 @@ h3 {
     min-width: 0;
   }
 
-  .inventory-view-tabs button:nth-child(3) {
+  .inventory-view-tabs button:nth-child(n) {
+    grid-column: auto;
+    border-top: 0;
+  }
+
+  .inventory-view-tabs button:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+
+  .inventory-view-tabs button:nth-child(odd) {
     border-top: 1px solid var(--line);
     border-left: 0;
   }
 
-  .inventory-view-tabs button:nth-child(4) {
-    border-top: 1px solid var(--line);
+  .inventory-view-tabs button:first-child {
+    border-top: 0;
   }
 
-  .inventory-view-tabs button:nth-child(5) {
+  .inventory-view-tabs button:nth-child(7) {
     grid-column: 1 / -1;
     border-top: 1px solid var(--line);
     border-left: 0;

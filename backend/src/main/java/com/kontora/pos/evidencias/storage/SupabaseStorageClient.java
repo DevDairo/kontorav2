@@ -89,6 +89,42 @@ public class SupabaseStorageClient implements EvidenciaStorageClient {
         }
     }
 
+    @Override
+    public void eliminar(String urlArchivo) {
+        validarConfiguracion();
+        String bucket = properties.getBucket().trim();
+        String rutaArchivo = extraerRutaArchivo(urlArchivo, bucket);
+        String serviceRoleKey = properties.getServiceRoleKey().trim();
+        URI uri = URI.create(storageApiBaseUrl() + "/object/" + encode(bucket));
+        String body = "{\"prefixes\":[\"" + escaparJson(rutaArchivo) + "\"]}";
+
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .header("Authorization", "Bearer " + serviceRoleKey)
+                .header("apikey", serviceRoleKey)
+                .header("Content-Type", "application/json")
+                .method("DELETE", HttpRequest.BodyPublishers.ofString(body))
+                .build();
+
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != HttpStatus.NOT_FOUND.value()
+                    && (response.statusCode() < 200 || response.statusCode() >= 300)) {
+                throw new ApiException(
+                        HttpStatus.BAD_GATEWAY,
+                        "Supabase Storage rechazo la eliminacion compensatoria de evidencia");
+            }
+        } catch (IOException exception) {
+            throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "No fue posible conectar con Supabase Storage para eliminar la evidencia");
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Eliminacion compensatoria de evidencia interrumpida");
+        }
+    }
+
     private void validarConfiguracion() {
         if ((isBlank(properties.getApiUrl()) && isBlank(properties.getProjectUrl()))
                 || isBlank(properties.getServiceRoleKey())
@@ -125,6 +161,10 @@ public class SupabaseStorageClient implements EvidenciaStorageClient {
         return Arrays.stream(path.split("/"))
                 .map(this::encode)
                 .collect(Collectors.joining("/"));
+    }
+
+    private String escaparJson(String valor) {
+        return valor.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private String extraerRutaArchivo(String urlArchivo, String bucket) {

@@ -21,6 +21,8 @@ public interface ArchivoEvidenciaRepository extends JpaRepository<ArchivoEvidenc
             "consignacionBancaria.usuarioRegistro",
             "pagoServicio",
             "pagoServicio.usuarioRegistro",
+            "perdidaInventario",
+            "perdidaInventario.usuarioRegistro",
             "usuarioSubida"
     })
     Optional<ArchivoEvidencia> findByIdArchivoEvidencia(UUID idArchivoEvidencia);
@@ -36,4 +38,8 @@ public interface ArchivoEvidenciaRepository extends JpaRepository<ArchivoEvidenc
 
     @EntityGraph(attributePaths = {"pagoServicio", "pagoServicio.usuarioRegistro", "usuarioSubida"})
     List<ArchivoEvidencia> findByPagoServicio_IdPagoServicioOrderByFechaSubidaDesc(UUID idPagoServicio);
+
+    @EntityGraph(attributePaths = {"perdidaInventario", "perdidaInventario.usuarioRegistro", "usuarioSubida"})
+    List<ArchivoEvidencia> findByPerdidaInventario_IdPerdidaInventarioOrderByFechaSubidaDesc(
+            UUID idPerdidaInventario);
 }

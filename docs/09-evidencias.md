@@ -2,7 +2,9 @@
 
 ## Objetivo
 
-Conservar y consultar soportes de transferencias, gastos, consignaciones y pagos de servicios mediante el backend y Supabase Storage autoalojado.
+Conservar y consultar soportes de transferencias, gastos, consignaciones, pagos
+de servicios y pérdidas de vasos mediante el backend y Supabase Storage
+autoalojado.
 
 La capacidad documental no tiene una entrada de navegacion independiente. Los soportes de gastos, consignaciones y servicios se gestionan en `/consultas`; los comprobantes de pagos de venta se revisan en `/transferencias`. La ruta anterior `/evidencias` redirige a `/consultas`.
 
@@ -31,6 +33,9 @@ Al abrir un soporte, la interfaz desplaza suavemente su vista previa al area vis
 - Descarga protegida por backend desde el mismo archivo temporal usado por la vista previa.
 - Mensaje uniforme de disponibilidad cuando una descarga no puede completarse: `La evidencia solicitada no esta disponible para descargar.`
 - Conservacion de soportes previos cuando se agrega una correccion; no se reemplazan ni eliminan registros historicos.
+- Carga y consulta de fotografías vinculadas a pérdidas de vasos.
+- Compensación del objeto físico cuando Storage acepta una carga pero la
+  transacción de metadata termina en rollback.
 
 ## Permisos
 
@@ -39,6 +44,9 @@ Al abrir un soporte, la interfaz desplaza suavemente su vista previa al area vis
 | Vendedor | Adjunta la evidencia de transferencia durante la venta y consulta solo lo permitido por su flujo. |
 | Administrador | Consulta, adjunta y descarga soportes administrativos de gastos y deposito desde Consultas y evidencias. |
 | Gerente | Tiene las capacidades administrativas y puede realizar ajustes historicos de evidencias de transferencia. |
+
+Administrador y gerente también pueden adjuntar y consultar fotografías de
+pérdidas con la caja abierta o cerrada.
 
 ## Reglas clave
 
@@ -67,6 +75,11 @@ Al abrir un soporte, la interfaz desplaza suavemente su vista previa al area vis
   adjuntarse desde la fotografia original.
 - Imagenes y PDF se representan dentro de la aplicacion; un formato no representable conserva la opcion de descarga.
 - Cada archivo se relaciona con un unico registro operativo; un pago puede conservar varios archivos de evidencia para trazabilidad.
+- La evidencia de pérdida acepta únicamente imágenes. Puede adjuntarse después
+  del cierre, siempre que la pérdida permanezca `registrada`.
+- La pérdida se registra antes de intentar subir la fotografía. Si Storage
+  rechaza la carga posterior, la pérdida y el descuento de stock permanecen y
+  la interfaz permite reintentar.
 - La interfaz no diferencia visualmente entre un archivo inexistente y una descarga que no puede completarse; en ambos casos informa que la evidencia no esta disponible. El backend mantiene el estado tecnico real para trazabilidad y diagnostico.
 - El ajuste de una evidencia de transferencia se registra en auditoria.
 - La normalizacion es transversal: los cinco endpoints de carga comparten el
@@ -82,8 +95,10 @@ Al abrir un soporte, la interfaz desplaza suavemente su vista previa al area vis
 - `POST /api/evidencias/gastos-caja/{idGastoCaja}`
 - `POST /api/evidencias/consignaciones-bancarias/{idConsignacionBancaria}`
 - `POST /api/evidencias/pagos-servicios/{idPagoServicio}`
+- `POST /api/evidencias/perdidas-inventario/{idPerdidaInventario}`
 - `GET /api/evidencias/pagos-venta/{idPagoVenta}`
 - `GET /api/evidencias/gastos-caja/{idGastoCaja}`
 - `GET /api/evidencias/consignaciones-bancarias/{idConsignacionBancaria}`
 - `GET /api/evidencias/pagos-servicios/{idPagoServicio}`
+- `GET /api/evidencias/perdidas-inventario/{idPerdidaInventario}`
 - `GET /api/evidencias/{idArchivoEvidencia}/descargar`

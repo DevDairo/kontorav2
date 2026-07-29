@@ -1,6 +1,7 @@
 package com.kontora.pos.evidencias.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kontora.pos.common.exception.ApiException;
 import com.kontora.pos.evidencias.storage.ArchivoAlmacenado;
 import com.kontora.pos.evidencias.storage.ArchivoDescargado;
 import com.kontora.pos.evidencias.storage.EvidenciaStorageClient;
@@ -13,6 +14,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
@@ -43,6 +45,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -367,6 +370,225 @@ class EvidenciasIntegrationTest {
         verify(storageClient, times(3)).subir(anyString(), eq(MediaType.APPLICATION_PDF_VALUE), any(byte[].class));
     }
 
+    @Test
+    void registraPerdidaAdjuntaEvidenciaDespuesYAnula() throws Exception {
+        crearCajaAbierta();
+        UUID idVaso = crearStockDiarioVasos(10);
+        UUID idTamanoVaso = idTamanoVaso(idVaso);
+        String tokenAdmin = iniciarSesion(USUARIO_ADMIN);
+
+        String response = mockMvc.perform(post("/api/inventario/perdidas-vasos")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenAdmin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "idTamanoVaso", idTamanoVaso.toString(),
+                                "cantidad", 2,
+                                "motivo", "Vasos rotos durante la jornada",
+                                "confirmaRegistro", true))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.estado").value("registrada"))
+                .andExpect(jsonPath("$.cantidad").value(2))
+                .andExpect(jsonPath("$.idTamanoVaso").value(idTamanoVaso.toString()))
+                .andExpect(jsonPath("$.evidencias.length()").value(0))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        UUID idPerdida = UUID.fromString(
+                objectMapper.readValue(response, Map.class).get("idPerdidaInventario").toString());
+        Map<String, Object> existencia = jdbcTemplate.queryForMap("""
+                SELECT cantidad_perdida, cantidad_final_teorica
+                FROM existencias_inventario_diario
+                WHERE id_caja_diaria = ?
+                  AND id_item_inventario = ?
+                """, idCajaDiaria, idVaso);
+        Integer evidencias = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM archivos_evidencia
+                WHERE id_perdida_inventario = ?
+                  AND tipo_archivo = 'imagen'
+                  AND estado = 'activo'
+                """, Integer.class, idPerdida);
+
+        assertThat(existencia.get("cantidad_perdida")).isEqualTo(2);
+        assertThat(existencia.get("cantidad_final_teorica")).isEqualTo(8);
+        assertThat(evidencias).isZero();
+        verify(storageClient, never()).subir(anyString(), anyString(), any(byte[].class));
+
+        mockMvc.perform(multipart("/api/evidencias/perdidas-inventario/{idPerdidaInventario}", idPerdida)
+                        .file(imagenPng("vasos-rotos.png"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenAdmin)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.idPerdidaInventario").value(idPerdida.toString()))
+                .andExpect(jsonPath("$.tipoArchivo").value("imagen"));
+
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM archivos_evidencia
+                WHERE id_perdida_inventario = ?
+                  AND tipo_archivo = 'imagen'
+                  AND estado = 'activo'
+                """, Integer.class, idPerdida)).isEqualTo(1);
+        verify(storageClient).subir(
+                startsWith("perdidas-inventario/" + idPerdida + "/"),
+                eq(MediaType.IMAGE_JPEG_VALUE),
+                any(byte[].class));
+
+        mockMvc.perform(post("/api/inventario/perdidas-vasos/{idPerdidaInventario}/anular", idPerdida)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenAdmin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "motivoAnulacion", "El vaso no estaba roto",
+                                "confirmaVasoNoRoto", true))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estado").value("anulada"));
+
+        Map<String, Object> existenciaRestaurada = jdbcTemplate.queryForMap("""
+                SELECT cantidad_perdida, cantidad_final_teorica
+                FROM existencias_inventario_diario
+                WHERE id_caja_diaria = ?
+                  AND id_item_inventario = ?
+                """, idCajaDiaria, idVaso);
+        assertThat(existenciaRestaurada.get("cantidad_perdida")).isEqualTo(0);
+        assertThat(existenciaRestaurada.get("cantidad_final_teorica")).isEqualTo(10);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM archivos_evidencia
+                WHERE id_perdida_inventario = ?
+                """, Integer.class, idPerdida)).isEqualTo(1);
+    }
+
+    @Test
+    void conservaPerdidaYStockDescontadoSiStorageRechazaLaEvidenciaPosterior() throws Exception {
+        crearCajaAbierta();
+        UUID idVaso = crearStockDiarioVasos(10);
+        UUID idTamanoVaso = idTamanoVaso(idVaso);
+        String tokenAdmin = iniciarSesion(USUARIO_ADMIN);
+
+        String response = mockMvc.perform(post("/api/inventario/perdidas-vasos")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenAdmin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "idTamanoVaso", idTamanoVaso.toString(),
+                                "cantidad", 2,
+                                "motivo", "Vasos rotos durante la jornada",
+                                "confirmaRegistro", true))))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        UUID idPerdida = UUID.fromString(
+                objectMapper.readValue(response, Map.class).get("idPerdidaInventario").toString());
+
+        when(storageClient.subir(anyString(), anyString(), any(byte[].class)))
+                .thenThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Storage no disponible"));
+
+        mockMvc.perform(multipart("/api/evidencias/perdidas-inventario/{idPerdidaInventario}", idPerdida)
+                        .file(imagenPng("vasos-rotos.png"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenAdmin)))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.mensaje").value("Storage no disponible"));
+
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM perdidas_inventario
+                WHERE id_caja_diaria = ?
+                """, Integer.class, idCajaDiaria)).isEqualTo(1);
+        Map<String, Object> existencia = jdbcTemplate.queryForMap("""
+                SELECT cantidad_perdida, cantidad_final_teorica
+                FROM existencias_inventario_diario
+                WHERE id_caja_diaria = ?
+                  AND id_item_inventario = ?
+                """, idCajaDiaria, idVaso);
+        assertThat(existencia.get("cantidad_perdida")).isEqualTo(2);
+        assertThat(existencia.get("cantidad_final_teorica")).isEqualTo(8);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM archivos_evidencia
+                WHERE id_perdida_inventario = ?
+                """, Integer.class, idPerdida)).isZero();
+    }
+
+    @Test
+    void gerentePuedeAdjuntarEvidenciaDePerdidaConCajaCerrada() throws Exception {
+        crearCajaAbierta();
+        UUID idVaso = crearStockDiarioVasos(10);
+        UUID idTamanoVaso = idTamanoVaso(idVaso);
+        String tokenAdmin = iniciarSesion(USUARIO_ADMIN);
+        String tokenGerente = iniciarSesion(USUARIO_GERENTE);
+
+        String response = mockMvc.perform(post("/api/inventario/perdidas-vasos")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenAdmin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "idTamanoVaso", idTamanoVaso.toString(),
+                                "cantidad", 1,
+                                "motivo", "Vaso roto con evidencia posterior",
+                                "confirmaRegistro", true))))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        UUID idPerdida = UUID.fromString(
+                objectMapper.readValue(response, Map.class).get("idPerdidaInventario").toString());
+        jdbcTemplate.update("""
+                UPDATE cajas_diarias
+                SET estado_caja = 'cerrada'::estado_caja_enum,
+                    fecha_cierre = NOW(),
+                    id_usuario_cierre = ?
+                WHERE id_caja_diaria = ?
+                """, idUsuarioAdmin, idCajaDiaria);
+
+        mockMvc.perform(multipart("/api/evidencias/perdidas-inventario/{idPerdidaInventario}", idPerdida)
+                        .file(imagenPng("evidencia-posterior.png"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenGerente)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.idPerdidaInventario").value(idPerdida.toString()))
+                .andExpect(jsonPath("$.tipoArchivo").value("imagen"))
+                .andExpect(jsonPath("$.nombreUsuarioSubida").value(USUARIO_GERENTE));
+
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM archivos_evidencia
+                WHERE id_perdida_inventario = ?
+                  AND estado = 'activo'
+                """, Integer.class, idPerdida)).isEqualTo(1);
+    }
+
+    @Test
+    void vendedorNoPuedeRegistrarPerdidaDeVasos() throws Exception {
+        crearCajaAbierta();
+        UUID idVaso = crearStockDiarioVasos(10);
+        UUID idTamanoVaso = idTamanoVaso(idVaso);
+        String tokenVendedor = iniciarSesion(USUARIO_VENDEDOR);
+
+        mockMvc.perform(post("/api/inventario/perdidas-vasos")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenVendedor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "idTamanoVaso", idTamanoVaso.toString(),
+                                "cantidad", 1,
+                                "motivo", "Intento de vendedor",
+                                "confirmaRegistro", true))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.mensaje").value(
+                        "Solo administrador o gerente puede gestionar perdidas de vasos"));
+
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM perdidas_inventario
+                WHERE id_caja_diaria = ?
+                """, Integer.class, idCajaDiaria)).isZero();
+        Map<String, Object> existencia = jdbcTemplate.queryForMap("""
+                SELECT cantidad_perdida, cantidad_final_teorica
+                FROM existencias_inventario_diario
+                WHERE id_caja_diaria = ?
+                  AND id_item_inventario = ?
+                """, idCajaDiaria, idVaso);
+        assertThat(existencia.get("cantidad_perdida")).isEqualTo(0);
+        assertThat(existencia.get("cantidad_final_teorica")).isEqualTo(10);
+    }
+
     private void crearCajaAbierta() {
         idCajaDiaria = jdbcTemplate.queryForObject("""
                 INSERT INTO cajas_diarias (
@@ -379,6 +601,37 @@ class EvidenciasIntegrationTest {
                 VALUES (?, 'abierta'::estado_caja_enum, 300000, ?, 'test_evidencias_caja')
                 RETURNING id_caja_diaria
                 """, UUID.class, FECHA_CAJA, idUsuarioAdmin);
+    }
+
+    private UUID crearStockDiarioVasos(int cantidad) {
+        UUID idVaso = jdbcTemplate.queryForObject("""
+                SELECT id_item_inventario
+                FROM items_inventario
+                WHERE nombre_item = 'vaso_8oz'
+                """, UUID.class);
+        jdbcTemplate.update("""
+                INSERT INTO existencias_inventario_diario (
+                    id_caja_diaria,
+                    id_item_inventario,
+                    cantidad_inicial,
+                    cantidad_ingresada,
+                    cantidad_vendida,
+                    cantidad_perdida,
+                    cantidad_cortesia,
+                    cantidad_ajustada,
+                    cantidad_final_teorica
+                )
+                VALUES (?, ?, ?, 0, 0, 0, 0, 0, ?)
+                """, idCajaDiaria, idVaso, cantidad, cantidad);
+        return idVaso;
+    }
+
+    private UUID idTamanoVaso(UUID idItemInventario) {
+        return jdbcTemplate.queryForObject("""
+                SELECT id_tamano_vaso
+                FROM items_inventario
+                WHERE id_item_inventario = ?
+                """, UUID.class, idItemInventario);
     }
 
     private UUID crearVentaConPago(UUID idUsuarioVendedor, String nombreMetodo, String estadoValidacion, BigDecimal valorPago) {
@@ -666,6 +919,33 @@ class EvidenciasIntegrationTest {
                 """);
         jdbcTemplate.update("""
                 DELETE FROM ventas
+                WHERE id_caja_diaria IN (
+                    SELECT id_caja_diaria
+                    FROM cajas_diarias
+                    WHERE fecha_operacion >= DATE '2099-01-01'
+                    OR observaciones LIKE 'test_evidencias_%'
+                )
+                """);
+        jdbcTemplate.update("""
+                DELETE FROM movimientos_inventario
+                WHERE id_caja_diaria IN (
+                    SELECT id_caja_diaria
+                    FROM cajas_diarias
+                    WHERE fecha_operacion >= DATE '2099-01-01'
+                    OR observaciones LIKE 'test_evidencias_%'
+                )
+                """);
+        jdbcTemplate.update("""
+                DELETE FROM perdidas_inventario
+                WHERE id_caja_diaria IN (
+                    SELECT id_caja_diaria
+                    FROM cajas_diarias
+                    WHERE fecha_operacion >= DATE '2099-01-01'
+                    OR observaciones LIKE 'test_evidencias_%'
+                )
+                """);
+        jdbcTemplate.update("""
+                DELETE FROM existencias_inventario_diario
                 WHERE id_caja_diaria IN (
                     SELECT id_caja_diaria
                     FROM cajas_diarias

@@ -30,9 +30,18 @@ import type {
   PaqueteVasosAbiertoResponse,
   VentasVasosDiarias,
 } from "../types";
+import { DevolucionStockDiarioPanel } from "./DevolucionStockDiarioPanel";
+import { PerdidasVasosPanel } from "./PerdidasVasosPanel";
 
 type LoadState = "loading" | "success" | "error";
-type InventoryView = "consulta" | "paquetes" | "consumo" | "ajuste" | "movimientos";
+type InventoryView =
+  | "consulta"
+  | "paquetes"
+  | "devolucion"
+  | "perdidas"
+  | "consumo"
+  | "ajuste"
+  | "movimientos";
 type DailyStockEntryMode = "paquetes" | "unidades";
 type GeneralStockAdjustmentDirection = "entrada" | "salida";
 
@@ -227,7 +236,7 @@ function DailyRow({ item }: { item: ExistenciaInventarioDiario }) {
           <dd>{item.cantidadInicial}</dd>
         </div>
         <div>
-          <dt>Ingresada</dt>
+          <dt>Carga neta</dt>
           <dd>{item.cantidadIngresada + item.cantidadAjustada}</dd>
         </div>
         <div>
@@ -237,6 +246,10 @@ function DailyRow({ item }: { item: ExistenciaInventarioDiario }) {
         <div>
           <dt>Perdida</dt>
           <dd>{item.cantidadPerdida}</dd>
+        </div>
+        <div>
+          <dt>Cortesia</dt>
+          <dd>{item.cantidadCortesia}</dd>
         </div>
         <div>
           <dt>Teorica</dt>
@@ -382,6 +395,16 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
       eyebrow: "Reabastecimiento diario",
       title: "Cargar stock diario",
       lead: "Registra paquetes completos o unidades sueltas que ya existen en el stock general.",
+    },
+    devolucion: {
+      eyebrow: "Correccion con trazabilidad",
+      title: "Devolver stock diario",
+      lead: "Regresa unidades cargadas por error al stock general sin eliminar movimientos.",
+    },
+    perdidas: {
+      eyebrow: "Perdidas operativas",
+      title: "Vasos rotos",
+      lead: "Descuenta vasos por tamano y administra su evidencia fotografica diferida.",
     },
     consumo: {
       eyebrow: "Consumo operativo",
@@ -735,6 +758,24 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
             Consumo diario
           </button>
           <button
+            className={view === "devolucion" ? "active" : ""}
+            type="button"
+            role="tab"
+            aria-selected={view === "devolucion"}
+            onClick={() => setView("devolucion")}
+          >
+            Devolver al general
+          </button>
+          <button
+            className={view === "perdidas" ? "active" : ""}
+            type="button"
+            role="tab"
+            aria-selected={view === "perdidas"}
+            onClick={() => setView("perdidas")}
+          >
+            Vasos rotos
+          </button>
+          <button
             className={view === "ajuste" ? "active" : ""}
             type="button"
             role="tab"
@@ -766,6 +807,24 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
         <SummaryCard label="Pendientes" value={pendingAdjustments} detail="Solicitudes por resolver" />
         <SummaryCard label="Gestion" value={managementValue} detail="Acciones segun tu rol" />
       </div>
+
+      {canManageInventory && view === "devolucion" ? (
+        <DevolucionStockDiarioPanel
+          items={dailyItems}
+          onCompleted={loadInventory}
+          role={role}
+          token={token}
+        />
+      ) : null}
+
+      {canManageInventory && view === "perdidas" ? (
+        <PerdidasVasosPanel
+          items={dailyItems}
+          onInventoryChanged={loadInventory}
+          openCashBoxId={openCashBoxId}
+          token={token}
+        />
+      ) : null}
 
       {canManageInventory ? (
         <div

@@ -11,6 +11,7 @@ import { ConfirmationDialog } from "../../../shared/components/ConfirmationDialo
 import { ApiClientError } from "../../../shared/services/apiClient";
 import { formatDisplayName } from "../../../shared/utils/displayText";
 import { obtenerCajaAbierta } from "../../caja/services/cajaService";
+import { CortesiasPanel } from "../../cortesias/components/CortesiasPanel";
 import { anularVenta, consultarVentaParaAnulacion, listarTrabajadoresVenta, registrarVenta } from "../services/ventasService";
 import type { RegistrarPagoVentaRequest, TipoComprador, TrabajadorVenta, VentaResponse } from "../types";
 import {
@@ -24,6 +25,7 @@ import { AdicionesDiariasPanel } from "./AdicionesDiariasPanel";
 
 type PaymentMode = "efectivo" | "transferencia" | "mixto";
 type LoadState = "loading" | "success" | "error";
+type SalesView = "venta" | "cortesias" | "anulacion";
 
 type VentaLinea = {
   id: string;
@@ -227,6 +229,7 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
   const [evidenciaTransferencia, setEvidenciaTransferencia] = useState<File | null>(null);
   const evidenciaTransferenciaInputRef = useRef<HTMLInputElement>(null);
   const canCancelSales = role === "administrador" || role === "gerente";
+  const [view, setView] = useState<SalesView>("venta");
   const [ventasJornada, setVentasJornada] = useState<ConsultaVenta[]>([]);
   const [isLoadingSales, setIsLoadingSales] = useState(false);
   const [idVentaAnulacion, setIdVentaAnulacion] = useState("");
@@ -239,6 +242,29 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
   const [pendingCancellation, setPendingCancellation] = useState<VentaResponse | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const lastSalePanelRef = useRef<HTMLElement>(null);
+  const viewHeading = view === "venta"
+    ? {
+      eyebrow: "Ventas y pagos",
+      title: "Registro de venta",
+      lead: "Registra productos, pagos y adiciones de la jornada.",
+    }
+    : view === "cortesias"
+      ? {
+        eyebrow: "Operación sin cobro",
+        title: "Cortesías",
+        lead: "Registra entregas autorizadas sin alterar precios, pagos ni promociones.",
+      }
+      : {
+        eyebrow: "Control de ventas",
+        title: "Anulación de venta",
+        lead: "Selecciona una venta, revisa toda su información y confirma la anulación con trazabilidad.",
+      };
+
+  useEffect(() => {
+    if (!canCancelSales && view !== "venta") {
+      setView("venta");
+    }
+  }, [canCancelSales, view]);
 
   const loadCatalogos = useCallback(async () => {
     setLoadState("loading");
@@ -275,7 +301,9 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
       });
       const registradas = response.filter((venta) => venta.estadoVenta === "registrada");
       setVentasJornada(registradas);
-      setIdVentaAnulacion((current) => (registradas.some((venta) => venta.idVenta === current) ? current : ""));
+      setIdVentaAnulacion((current) =>
+        registradas.some((venta) => venta.idVenta === current) ? current : (registradas[0]?.idVenta ?? ""),
+      );
       setVentaDetalleAnulacion((current) =>
         current && registradas.some((venta) => venta.idVenta === current.idVenta) ? current : null,
       );
@@ -324,6 +352,12 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
       void loadVentasAnulables();
     }
   }, [canCancelSales, loadVentasAnulables]);
+
+  useEffect(() => {
+    if (canCancelSales && view === "anulacion") {
+      void loadDetalleVentaAnulacion(idVentaAnulacion);
+    }
+  }, [canCancelSales, idVentaAnulacion, loadDetalleVentaAnulacion, view]);
 
   useEffect(() => {
     if (paymentMode === "efectivo") {
@@ -709,33 +743,78 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
     <>
       <section className="section-heading" aria-labelledby="ventas-title">
         <div>
-          <p className="eyebrow">Ventas y pagos</p>
-          <h1 id="ventas-title">Registro de venta</h1>
-          <p className="lead">Registra productos, pagos y adiciones de la jornada.</p>
+          <p className="eyebrow">{viewHeading.eyebrow}</p>
+          <h1 id="ventas-title">{viewHeading.title}</h1>
+          <p className="lead">{viewHeading.lead}</p>
         </div>
         <button
           className="ghost-button"
           type="button"
           onClick={() => {
             void loadCatalogos();
-            if (canCancelSales) {
+            if (canCancelSales && view === "anulacion") {
               void loadVentasAnulables();
             }
           }}
-          disabled={loadState === "loading"}
+          disabled={loadState === "loading" || (view === "anulacion" && isLoadingSales)}
         >
           <RefreshCw size={17} strokeWidth={2.2} />
           Reintentar
         </button>
       </section>
 
+      {canCancelSales ? (
+        <div className="ventas-view-tabs" role="tablist" aria-label="Vistas de ventas">
+          <button
+            aria-controls="ventas-sale-view"
+            aria-selected={view === "venta"}
+            className={view === "venta" ? "active" : ""}
+            id="ventas-sale-tab"
+            onClick={() => setView("venta")}
+            role="tab"
+            type="button"
+          >
+            Ventas
+          </button>
+          <button
+            aria-controls="ventas-courtesy-view"
+            aria-selected={view === "cortesias"}
+            className={view === "cortesias" ? "active" : ""}
+            id="ventas-courtesy-tab"
+            onClick={() => setView("cortesias")}
+            role="tab"
+            type="button"
+          >
+            Cortesía
+          </button>
+          <button
+            aria-controls="ventas-cancellation-view"
+            aria-selected={view === "anulacion"}
+            className={view === "anulacion" ? "active" : ""}
+            id="ventas-cancellation-tab"
+            onClick={() => setView("anulacion")}
+            role="tab"
+            type="button"
+          >
+            Anulación
+          </button>
+        </div>
+      ) : null}
+
       {errorMessage && loadState === "error" ? (
-        <div className="form-alert" role="status">
+        <div className="form-alert ventas-view-alert" role="status">
           <ReceiptText size={18} strokeWidth={2.2} />
           <span>{errorMessage}</span>
         </div>
       ) : null}
 
+      {view === "venta" ? (
+        <div
+          aria-labelledby={canCancelSales ? "ventas-sale-tab" : undefined}
+          className="ventas-view-content"
+          id="ventas-sale-view"
+          role={canCancelSales ? "tabpanel" : undefined}
+        >
       <form className="ventas-grid" onSubmit={handleSubmit}>
         <section className="panel ventas-form-panel" aria-labelledby="venta-detalle-title">
           <div className="panel-title">
@@ -1126,143 +1205,233 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
         </section>
       ) : null}
 
-      {canCancelSales ? (
-        <section className="panel venta-cancellation-panel" aria-labelledby="venta-cancellation-title">
-          <div className="panel-title">
-            <div>
-              <h2 id="venta-cancellation-title">Anular venta de la jornada</h2>
-              <p>Disponible mientras la caja diaria permanezca abierta.</p>
-            </div>
-            <XCircle size={22} strokeWidth={2.2} />
-          </div>
-
-          {cancellationError ? (
-            <div className="form-alert" role="status">
-              <ReceiptText size={18} strokeWidth={2.2} />
-              <span>{cancellationError}</span>
-            </div>
-          ) : null}
-          {cancellationMessage ? (
-            <div className="success-alert" role="status">
-              <ReceiptText size={18} strokeWidth={2.2} />
-              <span>{cancellationMessage}</span>
-            </div>
-          ) : null}
-
-          {ventasJornada.length === 0 && !isLoadingSales ? (
-            <p className="empty-state">No hay ventas registradas disponibles para anular en esta jornada.</p>
-          ) : (
-            <div className="ventas-controls venta-cancellation-fields">
-              <label className="field-label">
-                Venta registrada
-                <div className="field-control plain">
-                  <select
-                    value={idVentaAnulacion}
-                    onChange={(event) => {
-                      const idVenta = event.target.value;
-                      setIdVentaAnulacion(idVenta);
-                      setCancellationError(null);
-                      void loadDetalleVentaAnulacion(idVenta);
-                    }}
-                    disabled={isLoadingSales || isCancelling}
-                  >
-                    <option value="">Selecciona una venta</option>
-                    {ventasJornada.map((venta) => (
-                      <option key={venta.idVenta} value={venta.idVenta}>
-                        #{venta.numeroVenta} · {formatHoraVenta(venta.fechaVenta)} · {venta.nombreUsuarioVendedor} · {formatCurrency(venta.totalVenta)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </label>
-              <label className="field-label">
-                Motivo de anulacion
-                <div className="field-control plain">
-                  <input
-                    maxLength={300}
-                    value={motivoAnulacion}
-                    onChange={(event) => setMotivoAnulacion(event.target.value)}
-                    placeholder="Ej. Venta duplicada"
-                    disabled={isCancelling}
-                  />
-                </div>
-              </label>
-            </div>
-          )}
-
-          {isLoadingCancellationDetail ? <p className="empty-state">Verificando vasos y pagos de la venta seleccionada.</p> : null}
-
-          {detalleAnulacionSeleccionado ? (
-            <div className="venta-result-grid venta-cancellation-summary">
-              <div>
-                <span>Vendedor</span>
-                <strong>{detalleAnulacionSeleccionado.nombreUsuarioVendedor}</strong>
-              </div>
-              <div>
-                <span>Total de venta</span>
-                <strong>{formatCurrency(detalleAnulacionSeleccionado.totalVenta)}</strong>
-              </div>
-              <div>
-                <span>Hora de venta</span>
-                <strong>{formatHoraVenta(detalleAnulacionSeleccionado.fechaVenta)}</strong>
-              </div>
-              <div>
-                <span>Tipo de venta</span>
-                <strong>{resumenTiposVenta(detalleAnulacionSeleccionado.detalles)}</strong>
-              </div>
-              <div>
-                <span>Tipo de vaso</span>
-                <strong>{resumenTiposVaso(detalleAnulacionSeleccionado.detalles)}</strong>
-              </div>
-              <div>
-                <span>Vasos vendidos</span>
-                <strong>{resumenPaquetesVasos(detalleAnulacionSeleccionado.detalles)}</strong>
-              </div>
-              <div>
-                <span>Metodo de pago</span>
-                <strong>{resumenMetodosPago(detalleAnulacionSeleccionado.pagos)}</strong>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="venta-cancellation-actions">
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => void loadVentasAnulables()}
-              disabled={isLoadingSales || isCancelling}
-            >
-              <RefreshCw size={17} strokeWidth={2.2} />
-              {isLoadingSales ? "Actualizando" : "Actualizar ventas"}
-            </button>
-            <button
-              className="danger-button"
-              type="button"
-              onClick={solicitarAnulacion}
-              disabled={isLoadingSales || isLoadingCancellationDetail || isCancelling || !detalleAnulacionSeleccionado}
-            >
-              <XCircle size={17} strokeWidth={2.2} />
-              Anular venta
-            </button>
-          </div>
-        </section>
-      ) : null}
-
       <AdicionesDiariasPanel token={token} />
+        </div>
+      ) : view === "cortesias" && canCancelSales ? (
+        <div
+          aria-labelledby="ventas-courtesy-tab"
+          className="ventas-view-content"
+          id="ventas-courtesy-view"
+          role="tabpanel"
+        >
+          <CortesiasPanel
+            catalogos={catalogos}
+            disabled={loadState !== "success"}
+            token={token}
+            trabajadores={trabajadores}
+          />
+        </div>
+      ) : view === "anulacion" && canCancelSales ? (
+        <div
+          aria-labelledby="ventas-cancellation-tab"
+          className="ventas-view-content"
+          id="ventas-cancellation-view"
+          role="tabpanel"
+        >
+          <section className="panel operation-panel venta-cancellation-panel" aria-labelledby="venta-cancellation-title">
+            <div className="panel-title">
+              <div>
+                <h2 id="venta-cancellation-title">Anular venta de la jornada</h2>
+                <p>Disponible mientras la caja diaria permanezca abierta.</p>
+              </div>
+              <XCircle size={22} strokeWidth={2.2} />
+            </div>
 
-      <ConfirmationDialog
-        confirmLabel="Anular venta"
-        description={
-          pendingCancellation
-            ? `Anularas la venta #${pendingCancellation.numeroVenta}, registrada a las ${formatHoraVenta(pendingCancellation.fechaVenta)}, por ${formatCurrency(pendingCancellation.totalVenta)}. Tipo de venta: ${resumenTiposVenta(pendingCancellation.detalles)}. Tipo de vaso: ${resumenTiposVaso(pendingCancellation.detalles)}. Metodo de pago: ${resumenMetodosPago(pendingCancellation.pagos)}. El sistema restaurara los vasos de esta venta al stock diario.`
-            : ""
-        }
-        isConfirming={isCancelling}
-        onCancel={() => setPendingCancellation(null)}
-        onConfirm={() => void confirmarAnulacion()}
-        open={pendingCancellation !== null}
-        title="Confirmar anulacion de venta"
-      />
+            {cancellationError ? (
+              <div className="form-alert" role="status">
+                <ReceiptText size={18} strokeWidth={2.2} />
+                <span>{cancellationError}</span>
+              </div>
+            ) : null}
+            {cancellationMessage ? (
+              <div className="success-alert" role="status">
+                <ReceiptText size={18} strokeWidth={2.2} />
+                <span>{cancellationMessage}</span>
+              </div>
+            ) : null}
+
+            <div className="inventory-workspace-form sale-cancellation-workspace">
+              <section className="inventory-item-selector sale-cancellation-selector" aria-label="Ventas disponibles para anular">
+                <div className="inventory-item-selector-heading">
+                  <strong>Selecciona una venta</strong>
+                  <small>Presiona una fila para consultar toda la información antes de anular.</small>
+                </div>
+                <div className="inventory-item-table">
+                  <div className="inventory-item-table-header" aria-hidden="true">
+                    <span>N.º</span>
+                    <span>Venta</span>
+                    <span>Total</span>
+                  </div>
+                  <div className="inventory-item-options" role="group">
+                    {ventasJornada.map((venta, index) => (
+                      <button
+                        aria-pressed={idVentaAnulacion === venta.idVenta}
+                        className={idVentaAnulacion === venta.idVenta ? "selected" : ""}
+                        disabled={isCancelling}
+                        key={venta.idVenta}
+                        onClick={() => {
+                          setCancellationError(null);
+                          setCancellationMessage(null);
+                          setMotivoAnulacion("");
+                          if (idVentaAnulacion === venta.idVenta) {
+                            void loadDetalleVentaAnulacion(venta.idVenta);
+                          } else {
+                            setIdVentaAnulacion(venta.idVenta);
+                          }
+                        }}
+                        type="button"
+                      >
+                        <span className="inventory-item-number">{index + 1}</span>
+                        <span className="inventory-item-identity">
+                          <strong>Venta #{venta.numeroVenta}</strong>
+                          <small>{formatHoraVenta(venta.fechaVenta)} · {venta.nombreUsuarioVendedor}</small>
+                        </span>
+                        <b>{formatCurrency(venta.totalVenta)}</b>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {ventasJornada.length === 0 && !isLoadingSales ? (
+                  <p className="inventory-empty">No hay ventas registradas disponibles para anular en esta jornada.</p>
+                ) : null}
+              </section>
+
+              <div className="inventory-action-fields sale-cancellation-fields">
+                <div className="inventory-selected-item">
+                  <span>Venta seleccionada</span>
+                  <strong>
+                    {detalleAnulacionSeleccionado
+                      ? `Venta #${detalleAnulacionSeleccionado.numeroVenta}`
+                      : idVentaAnulacion
+                        ? "Consultando detalle"
+                        : "Sin seleccionar"}
+                  </strong>
+                  <small>
+                    {detalleAnulacionSeleccionado
+                      ? `${formatHoraVenta(detalleAnulacionSeleccionado.fechaVenta)} · ${detalleAnulacionSeleccionado.nombreUsuarioVendedor}`
+                      : "Selecciona una venta de la lista."}
+                  </small>
+                </div>
+
+                {isLoadingCancellationDetail ? (
+                  <p className="empty-state">Verificando productos, vasos y pagos de la venta seleccionada.</p>
+                ) : null}
+
+                {detalleAnulacionSeleccionado ? (
+                  <>
+                    <div className="venta-result-grid venta-cancellation-summary">
+                      <div>
+                        <span>Vendedor</span>
+                        <strong>{detalleAnulacionSeleccionado.nombreUsuarioVendedor}</strong>
+                      </div>
+                      <div>
+                        <span>Comprador</span>
+                        <strong>{formatDisplayName(detalleAnulacionSeleccionado.tipoComprador)}</strong>
+                      </div>
+                      <div>
+                        <span>Subtotal</span>
+                        <strong>{formatCurrency(detalleAnulacionSeleccionado.subtotalVenta)}</strong>
+                      </div>
+                      <div>
+                        <span>Descuento</span>
+                        <strong>{formatCurrency(detalleAnulacionSeleccionado.descuentoPromocion)}</strong>
+                      </div>
+                      <div>
+                        <span>Total de venta</span>
+                        <strong>{formatCurrency(detalleAnulacionSeleccionado.totalVenta)}</strong>
+                      </div>
+                      <div>
+                        <span>Hora de venta</span>
+                        <strong>{formatHoraVenta(detalleAnulacionSeleccionado.fechaVenta)}</strong>
+                      </div>
+                      <div>
+                        <span>Tipo de venta</span>
+                        <strong>{resumenTiposVenta(detalleAnulacionSeleccionado.detalles)}</strong>
+                      </div>
+                      <div>
+                        <span>Tipo de vaso</span>
+                        <strong>{resumenTiposVaso(detalleAnulacionSeleccionado.detalles)}</strong>
+                      </div>
+                      <div>
+                        <span>Vasos vendidos</span>
+                        <strong>{resumenPaquetesVasos(detalleAnulacionSeleccionado.detalles)}</strong>
+                      </div>
+                      <div>
+                        <span>Método de pago</span>
+                        <strong>{resumenMetodosPago(detalleAnulacionSeleccionado.pagos)}</strong>
+                      </div>
+                      <div>
+                        <span>Valor pagado</span>
+                        <strong>
+                          {formatCurrency(
+                            detalleAnulacionSeleccionado.pagos.reduce((total, pago) => total + pago.valorPago, 0),
+                          )}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Estado de los pagos</span>
+                        <strong>
+                          {detalleAnulacionSeleccionado.pagos
+                            .map((pago) => `${formatDisplayName(pago.nombreMetodo)}: ${formatDisplayName(pago.estadoValidacion)}`)
+                            .join(" · ")}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <label className="field-label">
+                      Motivo de anulación
+                      <div className="field-control plain">
+                        <input
+                          disabled={isCancelling}
+                          maxLength={300}
+                          onChange={(event) => setMotivoAnulacion(event.target.value)}
+                          placeholder="Ej. Venta duplicada"
+                          value={motivoAnulacion}
+                        />
+                      </div>
+                    </label>
+                  </>
+                ) : null}
+              </div>
+
+              <div className="inventory-workspace-actions venta-cancellation-actions">
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => void loadVentasAnulables()}
+                  disabled={isLoadingSales || isCancelling}
+                >
+                  <RefreshCw size={17} strokeWidth={2.2} />
+                  {isLoadingSales ? "Actualizando" : "Actualizar ventas"}
+                </button>
+                <button
+                  className="danger-button"
+                  type="button"
+                  onClick={solicitarAnulacion}
+                  disabled={isLoadingSales || isLoadingCancellationDetail || isCancelling || !detalleAnulacionSeleccionado}
+                >
+                  <XCircle size={17} strokeWidth={2.2} />
+                  Anular venta
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <ConfirmationDialog
+            confirmLabel="Anular venta"
+            description={
+              pendingCancellation
+                ? `Anularás la venta #${pendingCancellation.numeroVenta}, registrada a las ${formatHoraVenta(pendingCancellation.fechaVenta)}, por ${formatCurrency(pendingCancellation.totalVenta)}. Tipo de venta: ${resumenTiposVenta(pendingCancellation.detalles)}. Tipo de vaso: ${resumenTiposVaso(pendingCancellation.detalles)}. Método de pago: ${resumenMetodosPago(pendingCancellation.pagos)}. El sistema restaurará los vasos de esta venta al stock diario.`
+                : ""
+            }
+            isConfirming={isCancelling}
+            onCancel={() => setPendingCancellation(null)}
+            onConfirm={() => void confirmarAnulacion()}
+            open={pendingCancellation !== null}
+            title="Confirmar anulación de venta"
+          />
+        </div>
+      ) : null}
     </>
   );
 }

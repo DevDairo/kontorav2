@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("OPS_LOCAL_TOKEN", "OPS_DB_PASSWORD")]
+    [ValidateSet("OPS_LOCAL_TOKEN", "OPS_DB_PASSWORD", "OPS_EXECUTOR_TOKEN")]
     [string]$Name = "OPS_LOCAL_TOKEN"
 )
 

@@ -397,6 +397,7 @@ h2 {
 }
 
 .primary-button,
+.secondary-button,
 .text-button {
   border-radius: 8px;
   font-weight: 700;
@@ -411,6 +412,19 @@ h2 {
 
 .primary-button:hover {
   background: var(--primary-dark);
+}
+
+.secondary-button {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: var(--surface);
+}
+
+.secondary-button:hover {
+  border-color: #adc5ed;
+  background: var(--surface-soft);
 }
 
 .full-width {
@@ -893,6 +907,96 @@ h2 {
   font-size: 0.7rem;
 }
 
+.backup-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.operation-notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+  border: 1px solid #f0d7a8;
+  border-left: 3px solid var(--orange);
+  border-radius: 8px;
+  color: #76521d;
+  background: #fff9ee;
+  padding: 14px 16px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.operation-notice strong {
+  color: #60400f;
+}
+
+.backup-list-panel {
+  padding: 16px;
+}
+
+.backup-list {
+  display: grid;
+  gap: 10px;
+}
+
+.backup-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 14px;
+}
+
+.backup-entry-main,
+.backup-entry-meta {
+  display: grid;
+  gap: 5px;
+}
+
+.backup-entry-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.backup-entry-heading code,
+.backup-entry-hash {
+  font-family: Consolas, "Courier New", monospace;
+}
+
+.backup-entry-detail,
+.backup-entry-hash,
+.backup-entry-meta {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.backup-entry-meta {
+  min-width: 180px;
+  justify-items: end;
+  text-align: right;
+}
+
+.dialog-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.menu-tag.active-phase {
+  color: var(--primary);
+  background: #e7f0ff;
+}
+
 .future-panel {
   display: grid;
   justify-items: center;
@@ -1033,6 +1137,10 @@ h2 {
   .audit-summary-grid {
     grid-template-columns: 1fr;
   }
+
+  .backup-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 900px) {
@@ -1140,6 +1248,25 @@ h2 {
 
   .audit-entry-meta {
     text-align: left;
+  }
+
+  .backup-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .backup-entry {
+    grid-template-columns: 1fr;
+  }
+
+  .backup-entry-meta {
+    min-width: 0;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .operation-notice,
+  .dialog-actions {
+    grid-template-columns: 1fr;
   }
 
   .service-meta {

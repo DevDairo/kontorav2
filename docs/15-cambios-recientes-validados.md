@@ -13,6 +13,7 @@ reglas completas permanecen en la guia de cada modulo.
 | Comprobante de venta | Muestra hora, tipo con o sin licor, tamanos, cantidades, equivalencia en paquetes de 20 vasos y metodo de pago. | [Ventas y pagos](./04-ventas-y-pagos.md) |
 | Confirmacion visible | Despues de registrar, la pantalla desplaza el comprobante nuevo al area visible y respeta `prefers-reduced-motion`. | [Ventas y pagos](./04-ventas-y-pagos.md) |
 | Anulacion informada | El selector y el detalle muestran hora, tipo de venta, vasos, equivalencia y pagos antes de confirmar. | [Ventas y pagos](./04-ventas-y-pagos.md) |
+| Navegación segura | Ventas, Cortesía y Anulación usan vistas separadas; la acción destructiva ya no aparece dentro del formulario de venta. | [Ventas y pagos](./04-ventas-y-pagos.md) |
 | Jornada operativa | El registro toma el `idCajaDiaria` abierto y usa su `fechaOperacion` para resolver precios y promociones, incluso si el contenedor ya cambio de dia en UTC. | [Ventas y pagos](./04-ventas-y-pagos.md) |
 | Consultas | Cada venta conserva esos datos y las anuladas permanecen como trazabilidad sin aportar a totales vigentes. | [Consultas y evidencias](./11-consultas.md) |
 
@@ -65,11 +66,35 @@ el multipart de evidencia.
 | Unidades sueltas | Reabastecen stock diario sin crear inventario nuevo: salida general y entrada diaria atomicas por igual cantidad. | [Inventario operativo](./05-inventario-operativo.md) |
 | Roles | Gerente aplica directamente; administrador crea solicitud pendiente para decision gerencial. | [Inventario operativo](./05-inventario-operativo.md) |
 | Presentacion | El reabastecimiento se suma a `Ingresada`; no existe un indicador separado `Trasladada`. | [Inventario operativo](./05-inventario-operativo.md) |
-| Ingreso general | Solo permite entradas. No muestra correcciones o salidas en la interfaz. | [Inventario operativo](./05-inventario-operativo.md) |
+| Ajuste general | Permite entradas o salidas: gerente directo y administrador mediante solicitud pendiente. | [Inventario operativo](./05-inventario-operativo.md) |
 
 Las reglas de inventario fueron validadas con 17 pruebas de integracion
 exitosas, incluidos reabastecimiento directo, solicitud/aprobacion, caja
 cerrada, stock insuficiente y dos movimientos enlazados.
+
+## Cortesías, devoluciones y pérdidas
+
+| Cambio | Comportamiento vigente | Documento |
+| --- | --- | --- |
+| Flyway V3 | Crea cortesías, detalles, estados, movimientos y `cantidad_cortesia`. | [Referencia técnica](./16-cortesias-perdidas-y-correcciones-inventario.md) |
+| Flyway V4 | Crea pérdidas y permite relacionarlas con evidencias fotográficas. | [Referencia técnica](./16-cortesias-perdidas-y-correcciones-inventario.md) |
+| Cortesías | Descuentan stock diario sin crear ventas, pagos, precios ni valores de cierre. | [Ventas y pagos](./04-ventas-y-pagos.md) |
+| Anulación de cortesía | Solo procede con la misma caja abierta y confirmación de no entrega; restaura los vasos. | [Ventas y pagos](./04-ventas-y-pagos.md) |
+| Devolución diaria | Regresa vasos al general mediante ajuste auditado; admite paquetes de 20 o unidades en la interfaz. | [Inventario operativo](./05-inventario-operativo.md) |
+| Roles de devolución | Gerente aplica directamente; administrador crea solicitud pendiente. | [Inventario operativo](./05-inventario-operativo.md) |
+| Vasos rotos | Descuentan stock diario por tamaño y conservan motivo, responsable y estado. | [Inventario operativo](./05-inventario-operativo.md) |
+| Evidencia diferida | Administrador o gerente puede adjuntar fotografía después del cierre. | [Evidencias integradas](./09-evidencias.md) |
+| Cierre | No vuelve a modificar inventario y permite pérdidas con evidencia pendiente. | [Cierre de caja](./07-cierre-de-caja.md) |
+| Consultas | Novedades reúne cortesías y pérdidas; conserva anuladas y permite gestionar evidencias. | [Consultas y evidencias](./11-consultas.md) |
+| Responsive | Lista, selección, campos y acciones se apilan sin conservar coordenadas de escritorio. | [Referencia técnica](./16-cortesias-perdidas-y-correcciones-inventario.md) |
+| Items inactivos | No aparecen en formularios operativos, pero conservan existencias e historial. | [Catálogos](./03-catalogos.md) |
+
+Se confirmó una ejecución de 21 pruebas de integración: ocho de cierre y trece
+de evidencias, sin fallos. Estas pruebas incluyen cierre con evidencia
+pendiente, carga posterior al cierre, conservación de la pérdida cuando falla
+Storage y control de permisos. La suite de Inventario contiene además casos de
+devolución directa, solicitud/aprobación y cortesía; debe ejecutarse nuevamente
+junto con la suite completa antes de publicar la versión definitiva.
 
 ## Infraestructura relacionada
 
@@ -92,3 +117,7 @@ La evidencia detallada, incluidos errores y correcciones, se conserva en la
 5. Revisar en escritorio y movil ventas, anulacion, evidencias e inventario.
 6. Confirmar que no existen solicitudes del navegador hacia `localhost`,
    `127.0.0.1`, Storage o el backend directo cuando se usa el dominio publico.
+7. Confirmar Flyway V1, V2, V3 y V4 en `public.flyway_schema_history`.
+8. Probar cortesía, devolución y pérdida con una caja de prueba abierta.
+9. Cerrar la caja con evidencia pendiente y adjuntar la fotografía después del
+   cierre.

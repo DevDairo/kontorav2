@@ -29,8 +29,15 @@
 | 13 | [Auditoria](./13-auditoria.md) | `/auditoria` | Gerente |
 | 14 | [Credenciales del gerente inicial](./14-credenciales-gerente-inicial.md) | Configuracion | Responsable de despliegue |
 | 15 | [Cambios recientes validados](./15-cambios-recientes-validados.md) | Trazabilidad | Responsable tecnico y validacion funcional |
+| 16 | [Cortesías, pérdidas y correcciones](./16-cortesias-perdidas-y-correcciones-inventario.md) | Referencia técnica | Responsable técnico |
 
 La capacidad transversal de [Evidencias](./09-evidencias.md) permanece documentada, pero ya no tiene una pantalla independiente: sus funciones de gastos y deposito estan integradas en `/consultas`; los comprobantes de venta permanecen en Transferencias.
+
+## Operación de datos
+
+- [Reinicio total sin conservar información](./reinicio-total-datos/README.md).
+- [Respaldo y restauración de PostgreSQL y Storage](./respaldo-restauracion/README.md).
+- [Panel de operaciones](./panel-operaciones/README.md).
 
 ## Convenciones
 
@@ -46,6 +53,7 @@ La capacidad transversal de [Evidencias](./09-evidencias.md) permanece documenta
 ## Fuentes de referencia
 
 - Requisitos funcionales: `historico-desarrollo/requirements/source/Requisitos_Kontora_POS_Reconstruido.md`.
-- Schema canonico: `database/schema/kontora_pos_schema_v1_1.sql`.
-- Migracion base: `backend/src/main/resources/db/migration/V1__schema_inicial_kontora_pos.sql`.
+- Schema base histórico: `database/schema/kontora_pos_schema_v1_1.sql`.
+- Estructura vigente: cadena Flyway en
+  `backend/src/main/resources/db/migration`, desde V1 hasta V4.
 - Guia de ejecucion y despliegue: [README principal](../README.md).

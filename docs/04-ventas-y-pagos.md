@@ -19,9 +19,15 @@ Registrar ventas de granizados, aplicar precios y promociones vigentes, distribu
 - En transferencia unica, el valor se completa automaticamente con el total de la venta.
 - En pago mixto, se validan el aporte de transferencia y el efectivo restante antes de habilitar el registro.
 - Carga inicial de evidencia cuando el pago incluye transferencia.
+- Navegacion separada en `Ventas`, `Cortesía` y `Anulación` para evitar mezclar
+  operaciones financieras con acciones sin cobro o destructivas.
+- Registro de cortesías para trabajador u otro beneficiario, sin precio, pago,
+  promoción ni total financiero.
 - El comprobante de la venta registrada se muestra inmediatamente despues del formulario e incluye hora, tipo con o sin licor, tamanos de vaso, equivalencia de vasos en paquetes de 20 y metodo de pago.
 - Al completar el registro, la pantalla desplaza suavemente el comprobante nuevo al area visible para que el usuario confirme los datos de la operacion.
-- Panel de anulacion para seleccionar una venta registrada de la jornada, consultar hora, tipo con o sin licor, tamanos y cantidades de vasos, equivalencia en paquetes y metodos de pago, indicar el motivo y confirmar la operacion.
+- Panel independiente de anulacion para seleccionar una venta registrada de la
+  jornada y consultar vendedor, comprador, subtotal, descuento, total, hora,
+  productos, tamaños, cantidades y estados de pago antes de confirmar.
 - Anulacion autorizada de venta abierta, con motivo, trazabilidad y restauracion del stock diario de vasos, sin depender de si el pago fue en efectivo, transferencia o mixto.
 
 ## Permisos
@@ -29,7 +35,7 @@ Registrar ventas de granizados, aplicar precios y promociones vigentes, distribu
 | Rol | Funcionalidad |
 | --- | --- |
 | Vendedor | Registra ventas y consulta sus operaciones autorizadas. |
-| Administrador | Registra ventas y puede anular ventas mientras la caja esta abierta. |
+| Administrador | Registra ventas y cortesías; puede anularlas mientras su caja está abierta. |
 | Gerente | Tiene las mismas capacidades administrativas. |
 
 ## Reglas clave
@@ -57,6 +63,10 @@ Registrar ventas de granizados, aplicar precios y promociones vigentes, distribu
 - La suma de pagos debe coincidir con el total de la venta.
 - El pago mixto requiere una transferencia mayor que cero y menor que el total; el efectivo recibido debe cubrir el saldo restante. Si la transferencia cubre el total, se usa el metodo Transferencia.
 - Cada venta descuenta vasos segun el tamano; la anulacion devuelve al stock diario todos los vasos de sus lineas, para efectivo, transferencia y pago mixto.
+- Una cortesía descuenta vasos del stock diario, incrementa
+  `cantidad_cortesia` y no crea venta ni movimiento financiero.
+- La cortesía solo puede anularse con la misma caja abierta y cuando se confirma
+  que no fue entregada ni consumida. La anulación restaura los vasos.
 - Solo administrador y gerente pueden anular; vendedor no visualiza la accion y el sistema tambien protege el endpoint.
 - Solo se anulan ventas en estado `registrada` de una caja abierta; el registro permanece como `anulada` para consulta y auditoria. Sus pagos y evidencias no se eliminan, pues conservan la trazabilidad de la operacion.
 - Una venta anulada deja de aportar al total vendido, al efectivo, a las transferencias y a los valores calculados para el cierre de caja.
@@ -71,3 +81,7 @@ Registrar ventas de granizados, aplicar precios y promociones vigentes, distribu
 - `POST /api/ventas/{idVenta}/anular`
 - `GET /api/ventas/trabajadores`
 - `GET /api/consultas/ventas`
+- `POST /api/cortesias`
+- `GET /api/cortesias/caja-abierta`
+- `GET /api/cortesias`
+- `POST /api/cortesias/{idCortesia}/anular`

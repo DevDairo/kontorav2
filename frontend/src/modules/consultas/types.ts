@@ -64,6 +64,7 @@ export type ConsultaInventarioActual = {
   cantidadIngresadaDiaria: number | null;
   cantidadVendidaDiaria: number | null;
   cantidadPerdidaDiaria: number | null;
+  cantidadCortesiaDiaria: number | null;
   cantidadAjustadaDiaria: number | null;
   cantidadFinalTeoricaDiaria: number | null;
 };

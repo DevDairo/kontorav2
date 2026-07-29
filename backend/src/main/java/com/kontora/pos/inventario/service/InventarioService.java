@@ -8,12 +8,15 @@ import com.kontora.pos.catalogos.domain.TamanoVaso;
 import com.kontora.pos.catalogos.repository.ItemInventarioRepository;
 import com.kontora.pos.common.exception.ApiException;
 import com.kontora.pos.common.security.PrincipalUsuario;
+import com.kontora.pos.cortesias.domain.Cortesia;
+import com.kontora.pos.cortesias.domain.DetalleCortesia;
 import com.kontora.pos.inventario.domain.AjusteInventario;
 import com.kontora.pos.inventario.domain.ConsumoDiarioInventario;
 import com.kontora.pos.inventario.domain.ExistenciaInventarioDiario;
 import com.kontora.pos.inventario.domain.ExistenciaInventarioGeneral;
 import com.kontora.pos.inventario.domain.MovimientoInventario;
 import com.kontora.pos.inventario.domain.PaqueteVasosAbierto;
+import com.kontora.pos.inventario.domain.PerdidaInventario;
 import com.kontora.pos.inventario.dto.AjusteInventarioResponse;
 import com.kontora.pos.inventario.dto.ConsumoDiarioInventarioResponse;
 import com.kontora.pos.inventario.dto.ExistenciaInventarioDiarioResponse;
@@ -59,8 +62,11 @@ public class InventarioService {
     private static final String TIPO_STOCK_DIARIO = "diario";
     private static final String MOVIMIENTO_APERTURA_PAQUETE = "apertura_paquete";
     private static final String MOVIMIENTO_PERDIDA = "perdida";
+    private static final String MOVIMIENTO_ANULACION_PERDIDA = "anulacion_perdida";
     private static final String MOVIMIENTO_VENTA = "venta";
     private static final String MOVIMIENTO_ANULACION_VENTA = "anulacion_venta";
+    private static final String MOVIMIENTO_CORTESIA = "cortesia";
+    private static final String MOVIMIENTO_ANULACION_CORTESIA = "anulacion_cortesia";
     private static final String MOVIMIENTO_CONSUMO_DIARIO = "consumo_diario";
     private static final String MOVIMIENTO_AJUSTE = "ajuste";
     private static final String SENTIDO_ENTRADA = "entrada";
@@ -69,8 +75,10 @@ public class InventarioService {
     private static final String ESTADO_AJUSTE_APROBADO = "aprobado";
     private static final String ESTADO_AJUSTE_RECHAZADO = "rechazado";
     private static final String REFERENCIA_PAQUETES = "paquetes_vasos_abiertos";
+    private static final String REFERENCIA_PERDIDAS = "perdidas_inventario";
     private static final String REFERENCIA_CONSUMOS = "consumos_diarios_inventario";
     private static final String REFERENCIA_VENTAS = "ventas";
+    private static final String REFERENCIA_CORTESIAS = "cortesias";
     private static final String REFERENCIA_AJUSTES = "ajustes_inventario";
 
     private final CajaDiariaRepository cajaDiariaRepository;
@@ -321,8 +329,10 @@ public class InventarioService {
         int unidadesPorPaquete = item.getUnidadesPorPaquete();
         int unidadesGeneradas = cantidadPaquetes * unidadesPorPaquete;
         int unidadesRotas = request.unidadesRotas() == null ? 0 : request.unidadesRotas();
-        if (unidadesRotas > unidadesGeneradas) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "unidadesRotas no puede superar las unidades generadas");
+        if (unidadesRotas > 0) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "Los vasos rotos deben registrarse como perdida y adjuntar su evidencia antes del cierre");
         }
 
         ExistenciaInventarioGeneral existenciaGeneral = obtenerExistenciaGeneralBloqueada(item);
@@ -344,7 +354,6 @@ public class InventarioService {
 
         ExistenciaInventarioDiario existenciaDiaria = obtenerOCrearExistenciaDiaria(cajaDiaria, item);
         existenciaDiaria.setCantidadIngresada(valor(existenciaDiaria.getCantidadIngresada()) + unidadesGeneradas);
-        existenciaDiaria.setCantidadPerdida(valor(existenciaDiaria.getCantidadPerdida()) + unidadesRotas);
         recalcularCantidadFinalTeorica(existenciaDiaria);
 
         registrarMovimiento(
@@ -369,20 +378,6 @@ public class InventarioService {
                 paqueteGuardado.getIdPaqueteVasosAbierto(),
                 "Ingreso al stock diario por apertura de paquetes",
                 usuario);
-        if (unidadesRotas > 0) {
-            registrarMovimiento(
-                    item,
-                    cajaDiaria,
-                    TIPO_STOCK_DIARIO,
-                    MOVIMIENTO_PERDIDA,
-                    unidadesRotas,
-                    SENTIDO_SALIDA,
-                    REFERENCIA_PAQUETES,
-                    paqueteGuardado.getIdPaqueteVasosAbierto(),
-                    "Vasos rotos al abrir paquetes",
-                    usuario);
-        }
-
         return toResponse(paqueteGuardado);
     }
 
@@ -486,6 +481,141 @@ public class InventarioService {
         }
     }
 
+    @Transactional
+    public void descontarVasosPorCortesia(
+            Cortesia cortesia,
+            List<DetalleCortesia> detalles,
+            Usuario usuarioRegistro) {
+        for (DetalleCortesia detalle : detalles) {
+            ItemInventario item = obtenerVasoPorTamano(
+                    detalle.getTamanoVaso().getIdTamanoVaso());
+            ExistenciaInventarioDiario existenciaDiaria = obtenerExistenciaDiariaBloqueada(
+                    cortesia.getCajaDiaria(),
+                    item,
+                    "No existe stock diario para el vaso entregado como cortesia");
+            int cantidad = detalle.getCantidad();
+            validarStockSuficiente(
+                    stockDiarioDisponible(existenciaDiaria),
+                    cantidad,
+                    "Stock diario insuficiente para registrar la cortesia");
+
+            existenciaDiaria.setCantidadCortesia(
+                    valor(existenciaDiaria.getCantidadCortesia()) + cantidad);
+            recalcularCantidadFinalTeorica(existenciaDiaria);
+            registrarMovimiento(
+                    item,
+                    cortesia.getCajaDiaria(),
+                    TIPO_STOCK_DIARIO,
+                    MOVIMIENTO_CORTESIA,
+                    cantidad,
+                    SENTIDO_SALIDA,
+                    REFERENCIA_CORTESIAS,
+                    cortesia.getIdCortesia(),
+                    "Salida de stock diario por cortesia",
+                    usuarioRegistro);
+        }
+    }
+
+    @Transactional
+    public void restaurarVasosPorAnulacionCortesia(
+            Cortesia cortesia,
+            List<DetalleCortesia> detalles,
+            Usuario usuarioRegistro) {
+        for (DetalleCortesia detalle : detalles) {
+            ItemInventario item = obtenerVasoPorTamano(
+                    detalle.getTamanoVaso().getIdTamanoVaso());
+            ExistenciaInventarioDiario existenciaDiaria = obtenerExistenciaDiariaBloqueada(
+                    cortesia.getCajaDiaria(),
+                    item,
+                    "No existe stock diario para restaurar la cortesia anulada");
+            int cantidad = detalle.getCantidad();
+            if (valor(existenciaDiaria.getCantidadCortesia()) < cantidad) {
+                throw new ApiException(
+                        HttpStatus.CONFLICT,
+                        "La anulacion dejaria cantidad_cortesia negativa");
+            }
+
+            existenciaDiaria.setCantidadCortesia(
+                    existenciaDiaria.getCantidadCortesia() - cantidad);
+            recalcularCantidadFinalTeorica(existenciaDiaria);
+            registrarMovimiento(
+                    item,
+                    cortesia.getCajaDiaria(),
+                    TIPO_STOCK_DIARIO,
+                    MOVIMIENTO_ANULACION_CORTESIA,
+                    cantidad,
+                    SENTIDO_ENTRADA,
+                    REFERENCIA_CORTESIAS,
+                    cortesia.getIdCortesia(),
+                    "Restauracion de stock diario por anulacion de cortesia no entregada",
+                    usuarioRegistro);
+        }
+    }
+
+    @Transactional
+    public void registrarPerdidaVasos(
+            PerdidaInventario perdida,
+            Usuario usuarioRegistro) {
+        ItemInventario item = perdida.getItemInventario();
+        validarItemVasoConPaquetes(item);
+        ExistenciaInventarioDiario existenciaDiaria = obtenerExistenciaDiariaBloqueada(
+                perdida.getCajaDiaria(),
+                item,
+                "No existe stock diario para registrar la perdida de vasos");
+        int cantidad = perdida.getCantidad();
+        validarStockSuficiente(
+                stockDiarioDisponible(existenciaDiaria),
+                cantidad,
+                "Stock diario insuficiente para registrar la perdida de vasos");
+
+        existenciaDiaria.setCantidadPerdida(
+                valor(existenciaDiaria.getCantidadPerdida()) + cantidad);
+        recalcularCantidadFinalTeorica(existenciaDiaria);
+        registrarMovimiento(
+                item,
+                perdida.getCajaDiaria(),
+                TIPO_STOCK_DIARIO,
+                MOVIMIENTO_PERDIDA,
+                cantidad,
+                SENTIDO_SALIDA,
+                REFERENCIA_PERDIDAS,
+                perdida.getIdPerdidaInventario(),
+                perdida.getMotivo(),
+                usuarioRegistro);
+    }
+
+    @Transactional
+    public void restaurarPerdidaVasos(
+            PerdidaInventario perdida,
+            Usuario usuarioRegistro) {
+        ItemInventario item = perdida.getItemInventario();
+        ExistenciaInventarioDiario existenciaDiaria = obtenerExistenciaDiariaBloqueada(
+                perdida.getCajaDiaria(),
+                item,
+                "No existe stock diario para restaurar la perdida anulada");
+        int cantidad = perdida.getCantidad();
+        if (valor(existenciaDiaria.getCantidadPerdida()) < cantidad) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "La anulacion dejaria cantidad_perdida negativa");
+        }
+
+        existenciaDiaria.setCantidadPerdida(
+                existenciaDiaria.getCantidadPerdida() - cantidad);
+        recalcularCantidadFinalTeorica(existenciaDiaria);
+        registrarMovimiento(
+                item,
+                perdida.getCajaDiaria(),
+                TIPO_STOCK_DIARIO,
+                MOVIMIENTO_ANULACION_PERDIDA,
+                cantidad,
+                SENTIDO_ENTRADA,
+                REFERENCIA_PERDIDAS,
+                perdida.getIdPerdidaInventario(),
+                "Restauracion por anulacion de perdida registrada por error",
+                usuarioRegistro);
+    }
+
     private CajaDiaria obtenerCajaAbierta() {
         return cajaDiariaRepository.findPrimeraPorEstadoCaja(ESTADO_CAJA_ABIERTA)
                 .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "No existe caja diaria abierta para operar inventario"));
@@ -509,7 +639,7 @@ public class InventarioService {
             return;
         }
         if (TIPO_STOCK_DIARIO.equals(ajuste.getTipoStock())) {
-            aplicarReabastecimientoStockDiario(ajuste, usuarioAprobador, observacionAprobacion);
+            aplicarTransferenciaStockDiario(ajuste, usuarioAprobador, observacionAprobacion);
             return;
         }
         throw new ApiException(HttpStatus.BAD_REQUEST, "Tipo de stock no soportado para ajuste");
@@ -543,17 +673,12 @@ public class InventarioService {
                 usuarioAprobador);
     }
 
-    private void aplicarReabastecimientoStockDiario(
+    private void aplicarTransferenciaStockDiario(
             AjusteInventario ajuste,
             Usuario usuarioAprobador,
             String observacionAprobacion) {
         ItemInventario item = ajuste.getItemInventario();
         validarItemVasoConPaquetes(item);
-        if (!SENTIDO_ENTRADA.equals(ajuste.getSentidoAjuste())) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "El reabastecimiento solo permite entrada al stock diario");
-        }
 
         CajaDiaria cajaDiaria = ajuste.getCajaDiaria();
         CajaDiaria cajaAbierta = obtenerCajaAbierta();
@@ -566,17 +691,27 @@ public class InventarioService {
 
         int cantidad = ajuste.getCantidadAjuste();
         ExistenciaInventarioGeneral existenciaGeneral = obtenerExistenciaGeneralBloqueada(item);
-        validarStockSuficiente(
-                existenciaGeneral.getCantidadActual(),
-                cantidad,
-                "Stock general insuficiente para reabastecer el stock diario");
         ExistenciaInventarioDiario existenciaDiaria = obtenerExistenciaDiariaBloqueada(
                 cajaDiaria,
                 item,
-                "No existe stock diario para realizar el reabastecimiento");
+                "No existe stock diario para realizar la transferencia");
 
-        existenciaGeneral.setCantidadActual(existenciaGeneral.getCantidadActual() - cantidad);
-        existenciaDiaria.setCantidadAjustada(valor(existenciaDiaria.getCantidadAjustada()) + cantidad);
+        boolean entradaAlDiario = SENTIDO_ENTRADA.equals(ajuste.getSentidoAjuste());
+        if (entradaAlDiario) {
+            validarStockSuficiente(
+                    existenciaGeneral.getCantidadActual(),
+                    cantidad,
+                    "Stock general insuficiente para reabastecer el stock diario");
+            existenciaGeneral.setCantidadActual(existenciaGeneral.getCantidadActual() - cantidad);
+            existenciaDiaria.setCantidadAjustada(valor(existenciaDiaria.getCantidadAjustada()) + cantidad);
+        } else {
+            validarStockSuficiente(
+                    stockDiarioDisponible(existenciaDiaria),
+                    cantidad,
+                    "Stock diario insuficiente para devolver vasos al stock general");
+            existenciaDiaria.setCantidadAjustada(valor(existenciaDiaria.getCantidadAjustada()) - cantidad);
+            existenciaGeneral.setCantidadActual(existenciaGeneral.getCantidadActual() + cantidad);
+        }
         recalcularCantidadFinalTeorica(existenciaDiaria);
 
         String observacion = observacionMovimientoAjuste(ajuste, observacionAprobacion);
@@ -586,10 +721,12 @@ public class InventarioService {
                 TIPO_STOCK_GENERAL,
                 MOVIMIENTO_AJUSTE,
                 cantidad,
-                SENTIDO_SALIDA,
+                entradaAlDiario ? SENTIDO_SALIDA : SENTIDO_ENTRADA,
                 REFERENCIA_AJUSTES,
                 ajuste.getIdAjusteInventario(),
-                "Salida de stock general por reabastecimiento del stock diario: " + observacion,
+                entradaAlDiario
+                        ? "Salida de stock general por reabastecimiento del stock diario: " + observacion
+                        : "Reintegro al stock general desde el stock diario: " + observacion,
                 usuarioAprobador);
         registrarMovimiento(
                 item,
@@ -597,10 +734,12 @@ public class InventarioService {
                 TIPO_STOCK_DIARIO,
                 MOVIMIENTO_AJUSTE,
                 cantidad,
-                SENTIDO_ENTRADA,
+                entradaAlDiario ? SENTIDO_ENTRADA : SENTIDO_SALIDA,
                 REFERENCIA_AJUSTES,
                 ajuste.getIdAjusteInventario(),
-                "Ingreso por reabastecimiento del stock diario: " + observacion,
+                entradaAlDiario
+                        ? "Ingreso por reabastecimiento del stock diario: " + observacion
+                        : "Devolucion del stock diario al stock general: " + observacion,
                 usuarioAprobador);
     }
 
@@ -700,22 +839,24 @@ public class InventarioService {
             String sentidoAjuste,
             int cantidad) {
         validarItemVasoConPaquetes(item);
-        if (!SENTIDO_ENTRADA.equals(sentidoAjuste)) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "El reabastecimiento solo permite entrada al stock diario");
-        }
 
         CajaDiaria cajaDiaria = obtenerCajaAbierta();
         ExistenciaInventarioGeneral existenciaGeneral = obtenerExistenciaGeneralBloqueada(item);
-        validarStockSuficiente(
-                existenciaGeneral.getCantidadActual(),
-                cantidad,
-                "Stock general insuficiente para reabastecer el stock diario");
-        obtenerExistenciaDiariaBloqueada(
+        ExistenciaInventarioDiario existenciaDiaria = obtenerExistenciaDiariaBloqueada(
                 cajaDiaria,
                 item,
-                "No existe stock diario para realizar el reabastecimiento");
+                "No existe stock diario para realizar la transferencia");
+        if (SENTIDO_ENTRADA.equals(sentidoAjuste)) {
+            validarStockSuficiente(
+                    existenciaGeneral.getCantidadActual(),
+                    cantidad,
+                    "Stock general insuficiente para reabastecer el stock diario");
+        } else {
+            validarStockSuficiente(
+                    stockDiarioDisponible(existenciaDiaria),
+                    cantidad,
+                    "Stock diario insuficiente para devolver vasos al stock general");
+        }
         return cajaDiaria;
     }
 
@@ -778,6 +919,7 @@ public class InventarioService {
         existenciaDiaria.setCantidadIngresada(0);
         existenciaDiaria.setCantidadVendida(0);
         existenciaDiaria.setCantidadPerdida(0);
+        existenciaDiaria.setCantidadCortesia(0);
         existenciaDiaria.setCantidadAjustada(0);
         existenciaDiaria.setCantidadFinalTeorica(cantidadInicial);
         return existenciaDiarioRepository.saveAndFlush(existenciaDiaria);
@@ -807,6 +949,7 @@ public class InventarioService {
                 + valor(existenciaDiaria.getCantidadIngresada())
                 - valor(existenciaDiaria.getCantidadVendida())
                 - valor(existenciaDiaria.getCantidadPerdida())
+                - valor(existenciaDiaria.getCantidadCortesia())
                 + valor(existenciaDiaria.getCantidadAjustada());
         if (cantidadFinal < 0) {
             throw new ApiException(HttpStatus.CONFLICT, "El movimiento dejaria stock diario negativo");
@@ -928,6 +1071,7 @@ public class InventarioService {
                 existencia.getCantidadIngresada(),
                 existencia.getCantidadVendida(),
                 existencia.getCantidadPerdida(),
+                existencia.getCantidadCortesia(),
                 existencia.getCantidadAjustada(),
                 existencia.getCantidadFinalTeorica(),
                 existencia.getCantidadFinalContada(),

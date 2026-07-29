@@ -18,6 +18,7 @@ public record ConsultaInventarioActualResponse(
         Integer cantidadIngresadaDiaria,
         Integer cantidadVendidaDiaria,
         Integer cantidadPerdidaDiaria,
+        Integer cantidadCortesiaDiaria,
         Integer cantidadAjustadaDiaria,
         Integer cantidadFinalTeoricaDiaria
 ) {

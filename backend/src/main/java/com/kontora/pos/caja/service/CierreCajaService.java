@@ -96,7 +96,6 @@ public class CierreCajaService {
         if (cierreCajaRepository.existsByCajaDiaria_IdCajaDiaria(idCajaDiaria)) {
             throw new ApiException(HttpStatus.CONFLICT, "La caja diaria ya tiene cierre registrado");
         }
-
         AdicionDiaria adicionDiaria = adicionDiariaRepository.findByCajaDiaria_IdCajaDiaria(idCajaDiaria)
                 .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "Debe existir registro de adiciones diarias antes del cierre"));
         PagoTrabajadoresDiario pagoTrabajadores = pagoTrabajadoresDiarioRepository.findByCajaDiaria_IdCajaDiaria(idCajaDiaria)

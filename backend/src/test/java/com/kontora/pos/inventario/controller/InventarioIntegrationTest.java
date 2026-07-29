@@ -56,6 +56,7 @@ class InventarioIntegrationTest {
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     private UUID idUsuarioAdmin;
+    private UUID idUsuarioVendedor;
     private UUID idCajaDiaria;
 
     @BeforeEach
@@ -63,7 +64,10 @@ class InventarioIntegrationTest {
         limpiarDatosDePrueba();
         idUsuarioAdmin = crearUsuarioConCredencial(USUARIO_ADMIN, "Administrador Inventario", "administrador");
         crearUsuarioConCredencial(USUARIO_GERENTE, "Gerente Inventario", "gerente");
-        crearUsuarioConCredencial(USUARIO_VENDEDOR, "Vendedor Inventario", "vendedor");
+        idUsuarioVendedor = crearUsuarioConCredencial(
+                USUARIO_VENDEDOR,
+                "Vendedor Inventario",
+                "vendedor");
     }
 
     @AfterEach
@@ -113,7 +117,7 @@ class InventarioIntegrationTest {
     }
 
     @Test
-    void registraPaqueteVasosYMovimientos() throws Exception {
+    void registraPaqueteVasosSinPerdidasYMovimientos() throws Exception {
         crearCajaAbierta();
         UUID idVaso = idItemInventario("vaso_8oz");
         ajustarStockGeneral(idVaso, 40);
@@ -125,12 +129,12 @@ class InventarioIntegrationTest {
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "idItemInventario", idVaso.toString(),
                                 "cantidadPaquetes", 1,
-                                "unidadesRotas", 2))))
+                                "unidadesRotas", 0))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.nombreItem").value("vaso_8oz"))
                 .andExpect(jsonPath("$.unidadesGeneradas").value(20))
-                .andExpect(jsonPath("$.unidadesRotas").value(2))
-                .andExpect(jsonPath("$.unidadesDisponibles").value(18))
+                .andExpect(jsonPath("$.unidadesRotas").value(0))
+                .andExpect(jsonPath("$.unidadesDisponibles").value(20))
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -147,15 +151,36 @@ class InventarioIntegrationTest {
 
         assertThat(stockGeneral).isEqualTo(20);
         assertThat(existenciaDiaria.get("cantidad_ingresada")).isEqualTo(20);
-        assertThat(existenciaDiaria.get("cantidad_perdida")).isEqualTo(2);
-        assertThat(existenciaDiaria.get("cantidad_final_teorica")).isEqualTo(18);
-        assertThat(movimientos).isEqualTo(3);
+        assertThat(existenciaDiaria.get("cantidad_perdida")).isEqualTo(0);
+        assertThat(existenciaDiaria.get("cantidad_final_teorica")).isEqualTo(20);
+        assertThat(movimientos).isEqualTo(2);
 
         mockMvc.perform(get("/api/inventario/movimientos")
                         .header(HttpHeaders.AUTHORIZATION, bearer(token)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].tipoMovimiento", hasItem("apertura_paquete")))
-                .andExpect(jsonPath("$[*].tipoMovimiento", hasItem("perdida")));
+                .andExpect(jsonPath("$[*].tipoMovimiento", hasItem("apertura_paquete")));
+    }
+
+    @Test
+    void rechazaVasosRotosEnAperturaPorqueRequierenEvidencia() throws Exception {
+        crearCajaAbierta();
+        UUID idVaso = idItemInventario("vaso_8oz");
+        ajustarStockGeneral(idVaso, 40);
+        String token = iniciarSesion(USUARIO_ADMIN);
+
+        mockMvc.perform(post("/api/inventario/paquetes-vasos")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "idItemInventario", idVaso.toString(),
+                                "cantidadPaquetes", 1,
+                                "unidadesRotas", 2))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.mensaje").value(
+                        "Los vasos rotos deben registrarse como perdida y adjuntar su evidencia antes del cierre"));
+
+        assertThat(stockGeneral(idVaso)).isEqualTo(40);
+        assertThat(existenciaDiaria(idVaso).get("cantidad_final_teorica")).isEqualTo(0);
     }
 
     @Test
@@ -394,6 +419,102 @@ class InventarioIntegrationTest {
     }
 
     @Test
+    void gerenteDevuelveVasosDelStockDiarioAlGeneral() throws Exception {
+        crearCajaAbierta();
+        UUID idVaso = idItemInventario("vaso_8oz");
+        ajustarStockGeneral(idVaso, 40);
+        String tokenGerente = iniciarSesion(USUARIO_GERENTE);
+
+        mockMvc.perform(post("/api/inventario/paquetes-vasos")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenGerente))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "idItemInventario", idVaso.toString(),
+                                "cantidadPaquetes", 1,
+                                "unidadesRotas", 0))))
+                .andExpect(status().isCreated());
+
+        String response = mockMvc.perform(post("/api/inventario/ajustes")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenGerente))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "idItemInventario", idVaso.toString(),
+                                "tipoStock", "diario",
+                                "cantidadAjuste", 7,
+                                "sentidoAjuste", "salida",
+                                "motivoAjuste", "Devolucion por dato ingresado incorrectamente"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.estadoAprobacion").value("aprobado"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        UUID idAjuste = UUID.fromString(
+                objectMapper.readValue(response, Map.class).get("idAjusteInventario").toString());
+        Map<String, Object> existenciaDiaria = existenciaDiaria(idVaso);
+        List<Map<String, Object>> movimientos = jdbcTemplate.queryForList("""
+                SELECT tipo_stock::text AS tipo_stock,
+                       sentido_movimiento::text AS sentido_movimiento
+                FROM movimientos_inventario
+                WHERE referencia_origen = 'ajustes_inventario'
+                  AND id_referencia_origen = ?
+                """, idAjuste);
+
+        assertThat(stockGeneral(idVaso)).isEqualTo(27);
+        assertThat(existenciaDiaria.get("cantidad_ajustada")).isEqualTo(-7);
+        assertThat(existenciaDiaria.get("cantidad_final_teorica")).isEqualTo(13);
+        assertThat(movimientos).anySatisfy(movimiento -> {
+            assertThat(movimiento.get("tipo_stock")).isEqualTo("general");
+            assertThat(movimiento.get("sentido_movimiento")).isEqualTo("entrada");
+        });
+        assertThat(movimientos).anySatisfy(movimiento -> {
+            assertThat(movimiento.get("tipo_stock")).isEqualTo("diario");
+            assertThat(movimiento.get("sentido_movimiento")).isEqualTo("salida");
+        });
+    }
+
+    @Test
+    void administradorSolicitaDevolucionYGerenteLaAprueba() throws Exception {
+        crearCajaAbierta();
+        UUID idVaso = idItemInventario("vaso_8oz");
+        ajustarStockGeneral(idVaso, 40);
+        String tokenAdmin = iniciarSesion(USUARIO_ADMIN);
+        String tokenGerente = iniciarSesion(USUARIO_GERENTE);
+
+        mockMvc.perform(post("/api/inventario/paquetes-vasos")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenAdmin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "idItemInventario", idVaso.toString(),
+                                "cantidadPaquetes", 1,
+                                "unidadesRotas", 0))))
+                .andExpect(status().isCreated());
+
+        UUID idAjuste = solicitarAjuste(
+                tokenAdmin,
+                idVaso,
+                "diario",
+                5,
+                "salida",
+                "Solicitud de devolucion al stock general");
+
+        assertThat(stockGeneral(idVaso)).isEqualTo(20);
+        assertThat(existenciaDiaria(idVaso).get("cantidad_final_teorica")).isEqualTo(20);
+
+        mockMvc.perform(post("/api/inventario/ajustes/{idAjusteInventario}/aprobar", idAjuste)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenGerente))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "observacionAprobacion", "Devolucion verificada"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estadoAprobacion").value("aprobado"));
+
+        assertThat(stockGeneral(idVaso)).isEqualTo(25);
+        assertThat(existenciaDiaria(idVaso).get("cantidad_ajustada")).isEqualTo(-5);
+        assertThat(existenciaDiaria(idVaso).get("cantidad_final_teorica")).isEqualTo(15);
+    }
+
+    @Test
     void rechazaReabastecimientoDeStockDiarioSinCajaAbierta() throws Exception {
         UUID idVaso = idItemInventario("vaso_8oz");
         ajustarStockGeneral(idVaso, 10);
@@ -587,6 +708,83 @@ class InventarioIntegrationTest {
         assertThat(movimientosAnulacion).isEqualTo(1);
     }
 
+    @Test
+    void registraYAnulaCortesiaSinCrearVentaNiMovimientoFinanciero() throws Exception {
+        crearCajaAbierta();
+        UUID idVaso = idItemInventario("vaso_8oz");
+        ajustarStockGeneral(idVaso, 40);
+        String tokenAdmin = iniciarSesion(USUARIO_ADMIN);
+
+        mockMvc.perform(post("/api/inventario/paquetes-vasos")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenAdmin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "idItemInventario", idVaso.toString(),
+                                "cantidadPaquetes", 1,
+                                "unidadesRotas", 0))))
+                .andExpect(status().isCreated());
+
+        String response = mockMvc.perform(post("/api/cortesias")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenAdmin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "tipoBeneficiario", "trabajador",
+                                "idUsuarioBeneficiario", idUsuarioVendedor.toString(),
+                                "detalles", List.of(Map.of(
+                                        "idTipoGranizado", idTipoGranizado("con_licor").toString(),
+                                        "idTamanoVaso", idTamanoVaso(8).toString(),
+                                        "cantidad", 2)),
+                                "confirmaRegistro", true))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.estado").value("registrada"))
+                .andExpect(jsonPath("$.detalles[0].cantidad").value(2))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        UUID idCortesia = UUID.fromString(
+                objectMapper.readValue(response, Map.class).get("idCortesia").toString());
+        Map<String, Object> existenciaConCortesia = existenciaDiaria(idVaso);
+        Integer ventas = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM ventas WHERE id_caja_diaria = ?",
+                Integer.class,
+                idCajaDiaria);
+        Integer movimientosCortesia = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM movimientos_inventario
+                WHERE tipo_movimiento = 'cortesia'
+                  AND referencia_origen = 'cortesias'
+                  AND id_referencia_origen = ?
+                """, Integer.class, idCortesia);
+
+        assertThat(stockGeneral(idVaso)).isEqualTo(20);
+        assertThat(existenciaConCortesia.get("cantidad_cortesia")).isEqualTo(2);
+        assertThat(existenciaConCortesia.get("cantidad_final_teorica")).isEqualTo(18);
+        assertThat(ventas).isZero();
+        assertThat(movimientosCortesia).isEqualTo(1);
+
+        mockMvc.perform(post("/api/cortesias/{idCortesia}/anular", idCortesia)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenAdmin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "motivoAnulacion", "La cortesia no fue entregada",
+                                "confirmaNoEntregada", true))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estado").value("anulada"));
+
+        Map<String, Object> existenciaAnulada = existenciaDiaria(idVaso);
+        Integer movimientosAnulacion = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM movimientos_inventario
+                WHERE tipo_movimiento = 'anulacion_cortesia'
+                  AND referencia_origen = 'cortesias'
+                  AND id_referencia_origen = ?
+                """, Integer.class, idCortesia);
+        assertThat(existenciaAnulada.get("cantidad_cortesia")).isEqualTo(0);
+        assertThat(existenciaAnulada.get("cantidad_final_teorica")).isEqualTo(20);
+        assertThat(movimientosAnulacion).isEqualTo(1);
+    }
+
     private Map<String, Object> requestVentaEfectivoCliente(int cantidad) {
         BigDecimal total = BigDecimal.valueOf(8000L * cantidad).setScale(2);
         return Map.of(
@@ -737,6 +935,7 @@ class InventarioIntegrationTest {
                 SELECT cantidad_ingresada,
                        cantidad_vendida,
                        cantidad_perdida,
+                       cantidad_cortesia,
                        cantidad_ajustada,
                        cantidad_final_teorica
                 FROM existencias_inventario_diario
@@ -881,6 +1080,28 @@ class InventarioIntegrationTest {
                 """);
         jdbcTemplate.update("""
                 DELETE FROM paquetes_vasos_abiertos
+                WHERE id_caja_diaria IN (
+                    SELECT id_caja_diaria
+                    FROM cajas_diarias
+                    WHERE fecha_operacion >= DATE '2099-01-01'
+                    OR observaciones LIKE 'test_inventario_%'
+                )
+                """);
+        jdbcTemplate.update("""
+                DELETE FROM detalles_cortesia
+                WHERE id_cortesia IN (
+                    SELECT id_cortesia
+                    FROM cortesias
+                    WHERE id_caja_diaria IN (
+                        SELECT id_caja_diaria
+                        FROM cajas_diarias
+                        WHERE fecha_operacion >= DATE '2099-01-01'
+                        OR observaciones LIKE 'test_inventario_%'
+                    )
+                )
+                """);
+        jdbcTemplate.update("""
+                DELETE FROM cortesias
                 WHERE id_caja_diaria IN (
                     SELECT id_caja_diaria
                     FROM cajas_diarias

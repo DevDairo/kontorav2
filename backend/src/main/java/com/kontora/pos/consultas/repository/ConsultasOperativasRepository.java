@@ -227,6 +227,7 @@ public class ConsultasOperativasRepository {
                     ed.cantidad_ingresada AS cantidad_ingresada_diaria,
                     ed.cantidad_vendida AS cantidad_vendida_diaria,
                     ed.cantidad_perdida AS cantidad_perdida_diaria,
+                    ed.cantidad_cortesia AS cantidad_cortesia_diaria,
                     ed.cantidad_ajustada AS cantidad_ajustada_diaria,
                     ed.cantidad_final_teorica AS cantidad_final_teorica_diaria
                 FROM items_inventario ii
@@ -552,6 +553,7 @@ public class ConsultasOperativasRepository {
                 integer(rs, "cantidad_ingresada_diaria"),
                 integer(rs, "cantidad_vendida_diaria"),
                 integer(rs, "cantidad_perdida_diaria"),
+                integer(rs, "cantidad_cortesia_diaria"),
                 integer(rs, "cantidad_ajustada_diaria"),
                 integer(rs, "cantidad_final_teorica_diaria"));
     }

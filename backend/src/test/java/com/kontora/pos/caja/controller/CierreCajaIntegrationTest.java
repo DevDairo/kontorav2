@@ -181,6 +181,42 @@ class CierreCajaIntegrationTest {
     }
 
     @Test
+    void cierraCajaAunqueExistaPerdidaDeVasosConEvidenciaPendiente() throws Exception {
+        crearCajaAbierta();
+        crearOperacionesParaCierre(true, true);
+        UUID idVaso = jdbcTemplate.queryForObject("""
+                SELECT id_item_inventario
+                FROM items_inventario
+                WHERE nombre_item = 'vaso_8oz'
+                """, UUID.class);
+        jdbcTemplate.update("""
+                INSERT INTO perdidas_inventario (
+                    id_caja_diaria,
+                    id_item_inventario,
+                    cantidad,
+                    motivo,
+                    id_usuario_registro,
+                    estado
+                )
+                VALUES (?, ?, 1, 'Evidencia pendiente de prueba', ?, 'registrada'::estado_perdida_inventario_enum)
+                """, idCajaDiaria, idVaso, idUsuarioAdmin);
+        String tokenAdmin = iniciarSesion(USUARIO_ADMIN);
+
+        mockMvc.perform(post("/api/cajas-diarias/{idCajaDiaria}/cerrar", idCajaDiaria)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(tokenAdmin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "efectivoContadoSinBase", new BigDecimal("44000.00")))))
+                .andExpect(status().isOk());
+
+        String estadoCaja = jdbcTemplate.queryForObject(
+                "SELECT estado_caja::text FROM cajas_diarias WHERE id_caja_diaria = ?",
+                String.class,
+                idCajaDiaria);
+        assertThat(estadoCaja).isEqualTo("cerrada");
+    }
+
+    @Test
     void vendedorNoPuedeCerrarCaja() throws Exception {
         crearCajaAbierta();
         crearOperacionesParaCierre(true, true);
@@ -499,6 +535,28 @@ class CierreCajaIntegrationTest {
                 """);
         jdbcTemplate.update("""
                 DELETE FROM pagos_trabajadores_diarios
+                WHERE id_caja_diaria IN (
+                    SELECT id_caja_diaria
+                    FROM cajas_diarias
+                    WHERE fecha_operacion >= DATE '2099-01-01'
+                    OR observaciones LIKE 'test_cierre_%'
+                )
+                """);
+        jdbcTemplate.update("""
+                DELETE FROM archivos_evidencia
+                WHERE id_perdida_inventario IN (
+                    SELECT id_perdida_inventario
+                    FROM perdidas_inventario
+                    WHERE id_caja_diaria IN (
+                        SELECT id_caja_diaria
+                        FROM cajas_diarias
+                        WHERE fecha_operacion >= DATE '2099-01-01'
+                        OR observaciones LIKE 'test_cierre_%'
+                    )
+                )
+                """);
+        jdbcTemplate.update("""
+                DELETE FROM perdidas_inventario
                 WHERE id_caja_diaria IN (
                     SELECT id_caja_diaria
                     FROM cajas_diarias

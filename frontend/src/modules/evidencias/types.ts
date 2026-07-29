@@ -4,6 +4,7 @@ export type ArchivoEvidenciaResponse = {
   idGastoCaja: string | null;
   idConsignacionBancaria: string | null;
   idPagoServicio: string | null;
+  idPerdidaInventario: string | null;
   urlArchivo: string;
   nombreArchivo: string;
   tipoArchivo: string;

@@ -41,9 +41,25 @@ const elements = {
   auditHeadHash: document.querySelector("#auditHeadHash"),
   auditEnvironmentBadge: document.querySelector("#auditEnvironmentBadge"),
   auditEntriesList: document.querySelector("#auditEntriesList"),
+  backupTotal: document.querySelector("#backupTotal"),
+  backupTotalDetail: document.querySelector("#backupTotalDetail"),
+  backupActive: document.querySelector("#backupActive"),
+  backupActiveBadge: document.querySelector("#backupActiveBadge"),
+  backupsList: document.querySelector("#backupsList"),
+  createBackupButton: document.querySelector("#createBackupButton"),
+  refreshBackupsButton: document.querySelector("#refreshBackupsButton"),
+  backupDialog: document.querySelector("#backupDialog"),
+  backupForm: document.querySelector("#backupForm"),
+  backupConfirmationInput: document.querySelector("#backupConfirmationInput"),
+  backupError: document.querySelector("#backupError"),
+  cancelBackupButton: document.querySelector("#cancelBackupButton"),
 };
 
 let authenticationMode = "local-token";
+let csrfToken = null;
+let backupsEnabled = false;
+let backupPollTimer = null;
+let pendingBackupIdempotencyKey = null;
 
 function currentToken() {
   return window.sessionStorage.getItem(TOKEN_KEY);
@@ -69,6 +85,30 @@ async function apiGet(path, { authenticated = true } = {}) {
     throw error;
   }
   return body;
+}
+
+async function apiPost(path, body, { idempotencyKey } = {}) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-Kontora-CSRF": csrfToken || "",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+      ...authHeaders(),
+    },
+    cache: "no-store",
+    body: JSON.stringify(body),
+  });
+  const responseBody = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(
+      responseBody.message || "No fue posible completar la operación",
+    );
+    error.status = response.status;
+    throw error;
+  }
+  return responseBody;
 }
 
 function stateLabel(state) {
@@ -139,6 +179,12 @@ function auditActionLabel(action) {
     "panel.started": "Panel iniciado",
     "panel.stopped": "Panel detenido",
     "diagnostics.snapshot": "Diagnóstico actualizado",
+    "backup.requested": "Respaldo solicitado",
+    "backup.completed": "Respaldo local completado",
+    "backup.failed": "Respaldo fallido",
+    "backup.rejected": "Respaldo rechazado",
+    "backup.monitor-timeout": "Seguimiento de respaldo agotado",
+    "backup.monitor-failed": "Seguimiento de respaldo interrumpido",
   };
   return labels[action] || action;
 }
@@ -153,10 +199,24 @@ function auditDetail(entry) {
     ].join(" · ");
   }
   if (entry.action === "panel.started") {
-    return `Autenticación ${entry.details?.authentication || "configurada"} · modo solo lectura`;
+    const mode = entry.details?.mode === "controlled-operations"
+      ? "operaciones controladas"
+      : "solo lectura";
+    return `Autenticación ${entry.details?.authentication || "configurada"} · ${mode}`;
   }
   if (entry.action === "panel.stopped") {
     return `Señal ${entry.details?.signal || "desconocida"}`;
+  }
+  if (entry.action.startsWith("backup.")) {
+    const details = entry.details || {};
+    return [
+      details.jobId ? `Trabajo ${details.jobId}` : null,
+      details.state ? `estado ${details.state}` : null,
+      Number.isFinite(details.bytes) ? `${formatBytes(details.bytes)} empaquetados` : null,
+      details.restoreVerification
+        ? `restauración ${details.restoreVerification}`
+        : null,
+    ].filter(Boolean).join(" · ") || "Operación de respaldo registrada";
   }
   return Object.entries(entry.details || {})
     .map(([key, value]) => `${key}: ${String(value)}`)
@@ -260,6 +320,22 @@ function formatTimestamp(value) {
   }
 }
 
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return "tamaño desconocido";
+  }
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let amount = bytes;
+  let unit = 0;
+  while (amount >= 1024 && unit < units.length - 1) {
+    amount /= 1024;
+    unit += 1;
+  }
+  const digits = unit === 0 || amount >= 10 ? 0 : 1;
+  return `${amount.toFixed(digits)} ${units[unit]}`;
+}
+
 function setTopbarState(state, text) {
   elements.topbarStatus.className = `status-pill ${state}`;
   elements.topbarStatusText.textContent = text;
@@ -358,6 +434,73 @@ function renderAudit(data) {
     : '<div class="empty-state">La bitácora todavía no contiene eventos.</div>';
 }
 
+function backupPresentation(state) {
+  const presentations = {
+    success: { label: "Empaquetado", className: "success" },
+    running: { label: "En ejecución", className: "warning" },
+    failure: { label: "Falló", className: "danger" },
+    interrupted: { label: "Interrumpido", className: "danger" },
+  };
+  return presentations[state] || { label: "Sin confirmar", className: "warning" };
+}
+
+function backupEntryMarkup(backup) {
+  const presentation = backupPresentation(backup.state);
+  const totalBytes = backup.files.reduce((sum, file) => sum + (file.bytes || 0), 0);
+  const mainHash = backup.files[0]?.sha256;
+  const external = backup.externalCopy?.state === "verified"
+    ? "copia externa verificada"
+    : "copia externa pendiente";
+  const restoration = backup.restoreVerification?.state === "verified"
+    ? "restauración verificada"
+    : "restauración pendiente";
+  return `
+    <article class="backup-entry">
+      <div class="backup-entry-main">
+        <div class="backup-entry-heading">
+          <strong>Respaldo</strong>
+          <code>${escapeHtml(backup.id)}</code>
+          <span class="badge ${presentation.className}">${presentation.label}</span>
+        </div>
+        <span class="backup-entry-detail">
+          ${escapeHtml(`${backup.files.length} archivos · ${formatBytes(totalBytes)} · ${external} · ${restoration}`)}
+        </span>
+        <span class="backup-entry-hash">
+          ${mainHash ? `SHA-256 ${escapeHtml(mainHash.slice(0, 20))}…` : escapeHtml(backup.error || "Generando artefactos…")}
+        </span>
+      </div>
+      <div class="backup-entry-meta">
+        <time datetime="${escapeHtml(backup.startedAt || "")}">
+          ${escapeHtml(backup.startedAt ? formatTimestamp(backup.startedAt) : "Fecha no disponible")}
+        </time>
+        <small>${escapeHtml(backup.operator || "system")}</small>
+      </div>
+    </article>
+  `;
+}
+
+function renderBackups(data) {
+  backupsEnabled = data.enabled !== false;
+  elements.createBackupButton.disabled = !backupsEnabled || Boolean(data.activeJob);
+  elements.backupTotal.textContent = String(data.backups.length);
+  elements.backupTotalDetail.textContent = data.backups.length === 1
+    ? "1 paquete conservado"
+    : `${data.backups.length} paquetes conservados`;
+  elements.backupActive.textContent = data.activeJob
+    ? data.activeJob.slice(0, 12)
+    : "Ninguno";
+  elements.backupActiveBadge.className =
+    `badge ${data.activeJob ? "warning" : "success"}`;
+  elements.backupActiveBadge.textContent = data.activeJob ? "Ocupado" : "Libre";
+  elements.backupsList.innerHTML = data.backups.length
+    ? data.backups.map(backupEntryMarkup).join("")
+    : `<div class="empty-state">${
+        backupsEnabled
+          ? "Todavía no se ha generado ningún respaldo."
+          : "El módulo de respaldos está deshabilitado."
+      }</div>`;
+}
+
 function renderDiagnostics(data) {
   const operational = data.summary.overall === "operational";
   elements.overallStatus.textContent = operational ? "Operación estable" : "Requiere atención";
@@ -380,7 +523,7 @@ function renderDiagnostics(data) {
     : "Proxy Docker no disponible";
   elements.environmentBadge.textContent = data.environment;
   elements.operatorName.textContent = data.operator;
-  elements.operatorMode.textContent = `${data.environment} · solo lectura`;
+  elements.operatorMode.textContent = `${data.environment} · operaciones controladas`;
   elements.dashboardServicesList.innerHTML = data.services.map(serviceMarkup).join("");
   elements.systemServicesList.innerHTML = data.services.map(serviceMarkup).join("");
   elements.dashboardVolumesList.innerHTML = data.volumes.map(volumeMarkup).join("");
@@ -414,7 +557,11 @@ async function loadDiagnostics({
   try {
     const data = await apiGet("/api/v1/diagnostics");
     renderDiagnostics(data);
-    await loadAudit({ promptOnUnauthorized: false });
+    await loadSession();
+    await Promise.all([
+      loadAudit({ promptOnUnauthorized: false }),
+      loadBackups({ promptOnUnauthorized: false }),
+    ]);
     if (elements.authDialog.open) {
       elements.authDialog.close();
     }
@@ -467,6 +614,46 @@ async function loadAudit({ promptOnUnauthorized = true } = {}) {
   }
 }
 
+async function loadSession() {
+  const session = await apiGet("/api/v1/session");
+  csrfToken = session.csrfToken || null;
+  elements.operatorName.textContent = session.email;
+  elements.operatorMode.textContent = session.mode === "controlled-operations"
+    ? `${session.environment} · operaciones controladas`
+    : `${session.environment} · solo lectura`;
+  return session;
+}
+
+async function loadBackups({ promptOnUnauthorized = true } = {}) {
+  clearTimeout(backupPollTimer);
+  backupPollTimer = null;
+  elements.refreshBackupsButton.disabled = true;
+  elements.refreshBackupsButton.textContent = "Consultando…";
+  try {
+    const data = await apiGet("/api/v1/backups");
+    renderBackups(data);
+    if (data.activeJob) {
+      backupPollTimer = setTimeout(() => {
+        void loadBackups({ promptOnUnauthorized: false });
+      }, 2000);
+    }
+    return data;
+  } catch (error) {
+    const unauthorized = error.status === 401 || error.status === 403;
+    if (unauthorized && promptOnUnauthorized && authenticationMode === "local-token") {
+      window.sessionStorage.removeItem(TOKEN_KEY);
+      showLocalAuth();
+    } else {
+      elements.backupsList.innerHTML =
+        `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+    }
+    return null;
+  } finally {
+    elements.refreshBackupsButton.disabled = false;
+    elements.refreshBackupsButton.textContent = "Actualizar";
+  }
+}
+
 function closeMobileMenu() {
   elements.sidebar.classList.remove("mobile-open");
   elements.menuButton.setAttribute("aria-expanded", "false");
@@ -495,6 +682,12 @@ function navigateTo(view) {
   closeMobileMenu();
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   window.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
+  if (
+    view === "backups"
+    && (authenticationMode !== "local-token" || currentToken())
+  ) {
+    void loadBackups({ promptOnUnauthorized: false });
+  }
 }
 
 elements.authForm.addEventListener("submit", async (event) => {
@@ -528,9 +721,60 @@ elements.menuButton.addEventListener("click", () => {
 
 elements.logoutButton.addEventListener("click", () => {
   window.sessionStorage.removeItem(TOKEN_KEY);
+  csrfToken = null;
   elements.operatorName.textContent = "Operador";
   if (authenticationMode === "local-token") {
     showLocalAuth();
+  }
+});
+
+elements.createBackupButton.addEventListener("click", async () => {
+  elements.backupError.textContent = "";
+  elements.backupConfirmationInput.value = "";
+  try {
+    if (!csrfToken) {
+      await loadSession();
+    }
+    pendingBackupIdempotencyKey = crypto.randomUUID();
+    elements.backupDialog.showModal();
+    elements.backupConfirmationInput.focus();
+  } catch (error) {
+    elements.backupsList.innerHTML =
+      `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+});
+
+elements.cancelBackupButton.addEventListener("click", () => {
+  pendingBackupIdempotencyKey = null;
+  elements.backupDialog.close();
+});
+
+elements.backupForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const confirmation = elements.backupConfirmationInput.value.trim();
+  if (confirmation !== "RESPALDAR") {
+    elements.backupError.textContent = "La palabra de confirmación no coincide.";
+    return;
+  }
+  const submitButton = elements.backupForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  submitButton.textContent = "Iniciando…";
+  elements.backupError.textContent = "";
+  try {
+    await apiPost(
+      "/api/v1/backups",
+      { confirmation },
+      { idempotencyKey: pendingBackupIdempotencyKey || crypto.randomUUID() },
+    );
+    pendingBackupIdempotencyKey = null;
+    elements.backupDialog.close();
+    navigateTo("backups");
+    await loadBackups({ promptOnUnauthorized: false });
+  } catch (error) {
+    elements.backupError.textContent = error.message;
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = "Iniciar respaldo";
   }
 });
 
@@ -546,6 +790,10 @@ document.querySelectorAll(".audit-refresh-button").forEach((button) => {
   });
 });
 
+elements.refreshBackupsButton.addEventListener("click", () => {
+  void loadBackups();
+});
+
 document.querySelectorAll("[data-view]").forEach((button) => {
   button.addEventListener("click", () => navigateTo(button.dataset.view));
 });
@@ -558,6 +806,7 @@ async function initialize() {
   try {
     const health = await apiGet("/api/health", { authenticated: false });
     authenticationMode = health.authentication || "local-token";
+    backupsEnabled = health.backups?.enabled === true;
   } catch {
     authenticationMode = "local-token";
   }

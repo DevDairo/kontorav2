@@ -16,6 +16,8 @@ import com.kontora.pos.evidencias.repository.ArchivoEvidenciaRepository;
 import com.kontora.pos.evidencias.storage.ArchivoAlmacenado;
 import com.kontora.pos.evidencias.storage.ArchivoDescargado;
 import com.kontora.pos.evidencias.storage.EvidenciaStorageClient;
+import com.kontora.pos.inventario.domain.PerdidaInventario;
+import com.kontora.pos.inventario.repository.PerdidaInventarioRepository;
 import com.kontora.pos.usuarios.domain.Usuario;
 import com.kontora.pos.usuarios.repository.UsuarioRepository;
 import com.kontora.pos.ventas.domain.PagoVenta;
@@ -23,6 +25,8 @@ import com.kontora.pos.ventas.repository.PagoVentaRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.IIOImage;
@@ -52,6 +56,7 @@ public class EvidenciasService {
 
     private static final String ESTADO_ACTIVO = "activo";
     private static final String ESTADO_GASTO_ANULADO = "anulado";
+    private static final String ESTADO_PERDIDA_REGISTRADA = "registrada";
     private static final String METODO_TRANSFERENCIA = "transferencia";
     private static final String TIPO_IMAGEN = "imagen";
     private static final String TIPO_PDF = "pdf";
@@ -100,6 +105,7 @@ public class EvidenciasService {
     private final GastoCajaRepository gastoCajaRepository;
     private final ConsignacionBancariaRepository consignacionBancariaRepository;
     private final PagoServicioRepository pagoServicioRepository;
+    private final PerdidaInventarioRepository perdidaInventarioRepository;
     private final UsuarioRepository usuarioRepository;
     private final EvidenciaStorageClient storageClient;
     private final AuditoriaService auditoriaService;
@@ -110,6 +116,7 @@ public class EvidenciasService {
             GastoCajaRepository gastoCajaRepository,
             ConsignacionBancariaRepository consignacionBancariaRepository,
             PagoServicioRepository pagoServicioRepository,
+            PerdidaInventarioRepository perdidaInventarioRepository,
             UsuarioRepository usuarioRepository,
             EvidenciaStorageClient storageClient,
             AuditoriaService auditoriaService) {
@@ -118,6 +125,7 @@ public class EvidenciasService {
         this.gastoCajaRepository = gastoCajaRepository;
         this.consignacionBancariaRepository = consignacionBancariaRepository;
         this.pagoServicioRepository = pagoServicioRepository;
+        this.perdidaInventarioRepository = perdidaInventarioRepository;
         this.usuarioRepository = usuarioRepository;
         this.storageClient = storageClient;
         this.auditoriaService = auditoriaService;
@@ -218,6 +226,49 @@ public class EvidenciasService {
                 evidencia -> evidencia.setPagoServicio(pagoServicio));
     }
 
+    @Transactional
+    public ArchivoEvidenciaResponse cargarEvidenciaPerdidaInventario(
+            UUID idPerdidaInventario,
+            MultipartFile archivo,
+            PrincipalUsuario principalUsuario) {
+        validarRolAdministrativo(
+                principalUsuario,
+                "Solo administrador o gerente puede gestionar evidencias de perdidas");
+        PerdidaInventario perdida = obtenerPerdidaInventario(idPerdidaInventario);
+        if (!ESTADO_PERDIDA_REGISTRADA.equals(perdida.getEstado())) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "No se pueden agregar evidencias a una perdida anulada");
+        }
+        return guardarEvidenciaPerdida(perdida, archivo, principalUsuario);
+    }
+
+    @Transactional
+    public ArchivoEvidenciaResponse guardarEvidenciaPerdida(
+            PerdidaInventario perdida,
+            MultipartFile archivo,
+            PrincipalUsuario principalUsuario) {
+        validarRolAdministrativo(
+                principalUsuario,
+                "Solo administrador o gerente puede gestionar evidencias de perdidas");
+        ArchivoEvidenciaResponse evidencia = guardarEvidencia(
+                archivo,
+                principalUsuario,
+                "perdidas-inventario",
+                perdida.getIdPerdidaInventario(),
+                registro -> registro.setPerdidaInventario(perdida),
+                true);
+        auditoriaService.registrar(
+                principalUsuario.idUsuario(),
+                "archivos_evidencia",
+                evidencia.idArchivoEvidencia(),
+                "crear",
+                null,
+                snapshotEvidenciaPerdida(evidencia),
+                "Evidencia fotografica de perdida de vasos");
+        return evidencia;
+    }
+
     @Transactional(readOnly = true)
     public ArchivoEvidenciaResponse obtenerEvidencia(UUID idArchivoEvidencia, PrincipalUsuario principalUsuario) {
         ArchivoEvidencia evidencia = archivoEvidenciaRepository.findByIdArchivoEvidencia(idArchivoEvidencia)
@@ -282,19 +333,58 @@ public class EvidenciasService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public java.util.List<ArchivoEvidenciaResponse> listarPorPerdidaInventario(
+            UUID idPerdidaInventario,
+            PrincipalUsuario principalUsuario) {
+        validarRolAdministrativo(
+                principalUsuario,
+                "Solo administrador o gerente puede consultar evidencias de perdidas");
+        obtenerPerdidaInventario(idPerdidaInventario);
+        return archivoEvidenciaRepository
+                .findByPerdidaInventario_IdPerdidaInventarioOrderByFechaSubidaDesc(
+                        idPerdidaInventario)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
     private ArchivoEvidenciaResponse guardarEvidencia(
             MultipartFile archivo,
             PrincipalUsuario principalUsuario,
             String carpeta,
             UUID idProceso,
             Consumer<ArchivoEvidencia> asignarRelacion) {
+        return guardarEvidencia(
+                archivo,
+                principalUsuario,
+                carpeta,
+                idProceso,
+                asignarRelacion,
+                false);
+    }
+
+    private ArchivoEvidenciaResponse guardarEvidencia(
+            MultipartFile archivo,
+            PrincipalUsuario principalUsuario,
+            String carpeta,
+            UUID idProceso,
+            Consumer<ArchivoEvidencia> asignarRelacion,
+            boolean requiereImagen) {
         Usuario usuarioSubida = obtenerUsuario(principalUsuario.idUsuario());
         ArchivoProcesado archivoProcesado = procesarArchivo(archivo);
+        if (requiereImagen && !TIPO_IMAGEN.equals(archivoProcesado.tipoArchivo())) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "La evidencia de una perdida debe ser una imagen");
+        }
         String rutaArchivo = construirRutaArchivo(carpeta, idProceso, archivoProcesado.extensionAlmacenamiento());
         ArchivoAlmacenado archivoAlmacenado = storageClient.subir(
                 rutaArchivo,
                 archivoProcesado.contentType(),
                 archivoProcesado.contenido());
+        boolean compensacionRegistrada = registrarEliminacionSiHayRollback(
+                archivoAlmacenado.urlArchivo());
 
         ArchivoEvidencia evidencia = new ArchivoEvidencia();
         asignarRelacion.accept(evidencia);
@@ -309,7 +399,39 @@ public class EvidenciasService {
         evidencia.setUsuarioSubida(usuarioSubida);
         evidencia.setEstado(ESTADO_ACTIVO);
 
-        return toResponse(archivoEvidenciaRepository.saveAndFlush(evidencia));
+        try {
+            return toResponse(archivoEvidenciaRepository.saveAndFlush(evidencia));
+        } catch (RuntimeException exception) {
+            if (!compensacionRegistrada) {
+                eliminarCompensatoriamente(archivoAlmacenado.urlArchivo());
+            }
+            throw exception;
+        }
+    }
+
+    private boolean registrarEliminacionSiHayRollback(String urlArchivo) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()
+                || !TransactionSynchronizationManager.isSynchronizationActive()) {
+            return false;
+        }
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status == TransactionSynchronization.STATUS_ROLLED_BACK) {
+                            eliminarCompensatoriamente(urlArchivo);
+                        }
+                    }
+                });
+        return true;
+    }
+
+    private void eliminarCompensatoriamente(String urlArchivo) {
+        try {
+            storageClient.eliminar(urlArchivo);
+        } catch (RuntimeException ignored) {
+            // La operacion original debe conservar su error; el objeto huerfano puede depurarse operativamente.
+        }
     }
 
     private ArchivoProcesado procesarArchivo(MultipartFile archivo) {
@@ -446,6 +568,14 @@ public class EvidenciasService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Pago de servicio no encontrado"));
     }
 
+    private PerdidaInventario obtenerPerdidaInventario(UUID idPerdidaInventario) {
+        return perdidaInventarioRepository
+                .findByIdPerdidaInventario(idPerdidaInventario)
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "Perdida de inventario no encontrada"));
+    }
+
     private Usuario obtenerUsuario(UUID idUsuario) {
         return usuarioRepository.findById(idUsuario)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Usuario autenticado no encontrado"));
@@ -462,6 +592,12 @@ public class EvidenciasService {
         }
         if (evidencia.getConsignacionBancaria() != null || evidencia.getPagoServicio() != null) {
             validarRolAdministrativo(principalUsuario, "Solo administrador o gerente puede consultar evidencias de deposito");
+            return;
+        }
+        if (evidencia.getPerdidaInventario() != null) {
+            validarRolAdministrativo(
+                    principalUsuario,
+                    "Solo administrador o gerente puede consultar evidencias de perdidas");
         }
     }
 
@@ -514,6 +650,16 @@ public class EvidenciasService {
         return valores(
                 "id_archivo_evidencia", evidencia.idArchivoEvidencia(),
                 "id_pago_venta", evidencia.idPagoVenta(),
+                "nombre_archivo", evidencia.nombreArchivo(),
+                "tipo_archivo", evidencia.tipoArchivo(),
+                "formato_archivo", evidencia.formatoArchivo(),
+                "id_usuario_subida", evidencia.idUsuarioSubida());
+    }
+
+    private Map<String, Object> snapshotEvidenciaPerdida(ArchivoEvidenciaResponse evidencia) {
+        return valores(
+                "id_archivo_evidencia", evidencia.idArchivoEvidencia(),
+                "id_perdida_inventario", evidencia.idPerdidaInventario(),
                 "nombre_archivo", evidencia.nombreArchivo(),
                 "tipo_archivo", evidencia.tipoArchivo(),
                 "formato_archivo", evidencia.formatoArchivo(),
@@ -712,6 +858,9 @@ public class EvidenciasService {
                         ? null
                         : evidencia.getConsignacionBancaria().getIdConsignacionBancaria(),
                 evidencia.getPagoServicio() == null ? null : evidencia.getPagoServicio().getIdPagoServicio(),
+                evidencia.getPerdidaInventario() == null
+                        ? null
+                        : evidencia.getPerdidaInventario().getIdPerdidaInventario(),
                 evidencia.getUrlArchivo(),
                 evidencia.getNombreArchivo(),
                 evidencia.getTipoArchivo(),

@@ -81,6 +81,18 @@ public class EvidenciasController {
                 (PrincipalUsuario) authentication.getPrincipal());
     }
 
+    @PostMapping(path = "/perdidas-inventario/{idPerdidaInventario}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public ArchivoEvidenciaResponse cargarEvidenciaPerdidaInventario(
+            @PathVariable UUID idPerdidaInventario,
+            @RequestPart("archivo") MultipartFile archivo,
+            Authentication authentication) {
+        return evidenciasService.cargarEvidenciaPerdidaInventario(
+                idPerdidaInventario,
+                archivo,
+                (PrincipalUsuario) authentication.getPrincipal());
+    }
+
     @GetMapping("/{idArchivoEvidencia}")
     public ArchivoEvidenciaResponse obtenerEvidencia(
             @PathVariable UUID idArchivoEvidencia,
@@ -151,6 +163,15 @@ public class EvidenciasController {
             Authentication authentication) {
         return evidenciasService.listarPorPagoServicio(
                 idPagoServicio,
+                (PrincipalUsuario) authentication.getPrincipal());
+    }
+
+    @GetMapping("/perdidas-inventario/{idPerdidaInventario}")
+    public List<ArchivoEvidenciaResponse> listarPorPerdidaInventario(
+            @PathVariable UUID idPerdidaInventario,
+            Authentication authentication) {
+        return evidenciasService.listarPorPerdidaInventario(
+                idPerdidaInventario,
                 (PrincipalUsuario) authentication.getPrincipal());
     }
 

@@ -1,7 +1,9 @@
 # Ejecución local del panel de operaciones
 
-Esta fase expone únicamente consultas `GET` y `HEAD`. El proxy Docker bloquea
-`POST` y solo permite leer contenedores, volúmenes, ping y versión.
+El panel mantiene el proxy de diagnóstico limitado a `GET` y `HEAD`. La Fase 2A
+añade un ejecutor separado que solo acepta crear y listar respaldos mediante
+operaciones predefinidas. El navegador y el panel nunca reciben comandos libres
+ni acceso directo al socket Docker.
 
 ## Preparar el entorno
 
@@ -24,6 +26,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\infra\ops\scripts\New-
 
 Copiar la línea generada a `infra\ops\.env`, sustituyendo
 `OPS_LOCAL_TOKEN=`.
+
+Generar una credencial interna distinta para el ejecutor:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\infra\ops\scripts\New-OpsToken.ps1 -Name OPS_EXECUTOR_TOKEN
+```
+
+Copiar la línea generada a `infra\ops\.env`, sustituyendo
+`OPS_EXECUTOR_TOKEN=`. No usar esta credencial para iniciar sesión en el panel.
 
 Generar una credencial diferente para el lector PostgreSQL:
 
@@ -50,10 +61,14 @@ OPS_STORAGE_BUCKET=kontoraimagenes
 OPS_AUDIT_VOLUME_NAME=kontora_ops_audit_local_data
 OPS_AUDIT_DEFAULT_LIMIT=100
 OPS_AUDIT_MAX_BYTES=52428800
+OPS_BACKUPS_ENABLED=true
+OPS_BACKUP_VOLUME_NAME=kontora_ops_backups_local_data
+OPS_BACKUP_TIMEOUT_MS=300000
+OPS_RELEASE_VERSION=local-working-tree
 ```
 
-La contraseña real queda únicamente después de `OPS_DB_PASSWORD=` en el
-archivo ignorado por Git.
+Las credenciales reales quedan únicamente en el archivo ignorado por Git. No
+copiarlas a terminales compartidas, capturas, documentación ni commits.
 
 ## Preparar el lector PostgreSQL
 
@@ -89,11 +104,11 @@ docker compose --env-file infra\ops\.env -f infra\ops\compose.local.yml config -
 ```
 
 ```powershell
-docker compose --env-file infra\ops\.env -f infra\ops\compose.local.yml build ops-panel
+docker compose --env-file infra\ops\.env -f infra\ops\compose.local.yml build ops-executor ops-panel
 ```
 
 ```powershell
-docker compose --env-file infra\ops\.env -f infra\ops\compose.local.yml up -d docker-api-proxy ops-panel
+docker compose --env-file infra\ops\.env -f infra\ops\compose.local.yml up -d docker-api-proxy ops-executor ops-panel
 ```
 
 ```powershell
@@ -110,6 +125,15 @@ curl.exe --fail http://127.0.0.1:8090/api/health
 
 Abrir `http://127.0.0.1:8090` e ingresar la credencial local. El navegador la
 guarda solo en `sessionStorage`.
+
+Comprobar el canal interno del ejecutor:
+
+```powershell
+docker compose --env-file infra\ops\.env -f infra\ops\compose.local.yml exec -T ops-panel node -e "fetch('http://ops-executor:8091/healthz').then(async r=>{console.log(r.status);console.log(await r.text());process.exit(r.ok?0:1)}).catch(e=>{console.error(e.message);process.exit(1)})"
+```
+
+Debe responder HTTP `200`. El ejecutor no publica puertos en Windows ni en la
+red del servidor.
 
 ## Validar Flyway, bucket y evidencias
 
@@ -192,6 +216,67 @@ No continuar a la siguiente subfase si devuelve un estado diferente de `403`.
 El identificador es deliberadamente inexistente para que una configuración
 incorrecta tampoco pueda detener un servicio real.
 
+## Crear el primer respaldo local
+
+La Fase 2A crea un volumen independiente:
+
+```text
+kontora_ops_backups_local_data
+```
+
+No es un destino externo y no sustituye la copia cifrada de la Fase 2B. Tampoco
+se considera restaurable hasta superar la restauración aislada de la Fase 2C.
+
+Antes de iniciar:
+
+- los cuatro servicios requeridos deben estar operativos;
+- no debe existir otro respaldo activo;
+- no ejecutar simultáneamente `docker compose down`, reinicios manuales ni
+  actualizaciones de imágenes;
+- reservar una ventana breve en la que el POS dejará de responder.
+
+En el panel, abrir **Respaldos**, seleccionar **Crear respaldo**, escribir
+`RESPALDAR` y confirmar. El ejecutor:
+
+1. registra qué servicios estaban activos;
+2. detiene túnel, frontend, backend y Storage;
+3. genera `pg_dump` de los esquemas `public` y `storage`;
+4. detiene PostgreSQL;
+5. archiva el volumen de Storage con atributos extendidos;
+6. calcula SHA-256 y escribe el manifiesto;
+7. inicia únicamente los servicios que estaban activos;
+8. conserva el trabajo y su resultado aunque el navegador se cierre.
+
+El paquete contiene:
+
+```text
+kontora_pos.dump
+kontora_storage.tar.gz
+manifest.json
+manifest.sha256
+job.json
+```
+
+La interfaz debe mostrar el estado `Empaquetado`, dos archivos de datos, tamaño
+y hash. La bitácora debe registrar `backup.requested` y después
+`backup.completed`. Si falla, debe registrar `backup.failed` y los servicios
+deben volver a su estado inicial.
+
+Validar por API sin exponer credenciales:
+
+```powershell
+docker compose --env-file infra\ops\.env -f infra\ops\compose.local.yml exec -T ops-panel node -e "fetch('http://127.0.0.1:8090/api/v1/backups',{headers:{Authorization:'Bearer '+process.env.OPS_LOCAL_TOKEN}}).then(async r=>{console.log(r.status);console.log(JSON.stringify(await r.json(),null,2));process.exit(r.ok?0:1)})"
+```
+
+La aceptación inicial exige HTTP `200`, `activeJob=null`, al menos un respaldo
+con `state=success`, dos archivos con SHA-256 y servicios nuevamente saludables.
+`externalCopy.state=pending` y `restoreVerification.state=pending` son correctos
+en esta subfase.
+
+Para copiar el paquete fuera del volumen, validar sus hashes y ejecutar una
+restauración completa de ensayo, seguir
+[Respaldo y restauración local](../../docs/respaldo-restauracion/README.md).
+
 ## Detener solo el panel
 
 ```powershell
@@ -199,9 +284,9 @@ docker compose --env-file infra\ops\.env -f infra\ops\compose.local.yml down
 ```
 
 Este comando no detiene ni elimina servicios, redes o volúmenes del POS.
-Tampoco elimina el volumen de bitácora mientras no se agregue `--volumes` o
-`-v`. No usar esas opciones salvo durante una restauración expresamente
-planificada.
+No ejecutar mientras exista un respaldo activo. Tampoco elimina los volúmenes
+de bitácora o respaldos mientras no se agregue `--volumes` o `-v`. No usar esas
+opciones salvo durante una restauración expresamente planificada.
 
 ## Referencias de seguridad
 

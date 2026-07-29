@@ -60,6 +60,18 @@ export async function cargarEvidenciaPagoServicio(token: string, idPagoServicio:
   );
 }
 
+export async function cargarEvidenciaPerdidaInventario(
+  token: string,
+  idPerdidaInventario: string,
+  archivo: File,
+) {
+  return apiClient.post<ArchivoEvidenciaResponse>(
+    `/evidencias/perdidas-inventario/${encodeURIComponent(idPerdidaInventario)}`,
+    await crearFormularioEvidencia(archivo),
+    { token },
+  );
+}
+
 export function listarEvidenciasPagoVenta(token: string, idPagoVenta: string) {
   return apiClient.get<ArchivoEvidenciaResponse[]>(
     `/evidencias/pagos-venta/${encodeURIComponent(idPagoVenta)}`,
@@ -84,6 +96,13 @@ export function listarEvidenciasConsignacionBancaria(token: string, idConsignaci
 export function listarEvidenciasPagoServicio(token: string, idPagoServicio: string) {
   return apiClient.get<ArchivoEvidenciaResponse[]>(
     `/evidencias/pagos-servicios/${encodeURIComponent(idPagoServicio)}`,
+    { token },
+  );
+}
+
+export function listarEvidenciasPerdidaInventario(token: string, idPerdidaInventario: string) {
+  return apiClient.get<ArchivoEvidenciaResponse[]>(
+    `/evidencias/perdidas-inventario/${encodeURIComponent(idPerdidaInventario)}`,
     { token },
   );
 }

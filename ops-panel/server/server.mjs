@@ -1,15 +1,22 @@
 import { createReadStream } from "node:fs";
 import { access, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAuditLog, loadAuditConfig } from "./audit-log.mjs";
 import { AuthError, createAuthenticator, loadAuthConfig } from "./auth.mjs";
 import {
+  BackupExecutorError,
+  createBackupsClient,
+  loadBackupsConfig,
+} from "./backups.mjs";
+import {
   collectDatabaseDiagnostics,
   loadDatabaseDiagnosticsConfig,
 } from "./database-diagnostics.mjs";
 import { collectDiagnostics, loadDiagnosticsConfig } from "./diagnostics.mjs";
+import { createCsrfGuard } from "./csrf.mjs";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, "../public");
@@ -19,8 +26,15 @@ const authConfig = loadAuthConfig();
 const diagnosticsConfig = loadDiagnosticsConfig();
 const databaseDiagnosticsConfig = loadDatabaseDiagnosticsConfig();
 const auditConfig = loadAuditConfig();
+const backupsConfig = loadBackupsConfig();
 const auditLog = createAuditLog(auditConfig);
 const authenticate = createAuthenticator(authConfig);
+const backupsClient = createBackupsClient(backupsConfig);
+const csrfGuard = backupsConfig.enabled
+  ? createCsrfGuard(backupsConfig.token)
+  : null;
+const monitoredBackups = new Set();
+const MAX_JSON_BODY_BYTES = 16_384;
 
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -64,37 +78,128 @@ async function requireIdentity(request) {
   return authenticate(request);
 }
 
-async function handleApi(request, response, url) {
-  const { pathname } = url;
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    response.setHeader("Allow", "GET, HEAD");
-    sendJson(response, 405, { message: "Método no permitido en el panel de solo lectura" });
+async function readJson(request) {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of request) {
+    bytes += chunk.length;
+    if (bytes > MAX_JSON_BODY_BYTES) {
+      const error = new Error("La solicitud supera el límite permitido");
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+  } catch {
+    const error = new Error("El cuerpo JSON no es válido");
+    error.status = 400;
+    throw error;
+  }
+}
+
+function requireCsrf(request, identity) {
+  if (!csrfGuard?.verify(identity, request.headers["x-kontora-csrf"])) {
+    const error = new Error("La confirmación de seguridad expiró");
+    error.status = 403;
+    throw error;
+  }
+}
+
+async function monitorBackup(jobId, operator) {
+  if (monitoredBackups.has(jobId)) {
     return;
   }
+  monitoredBackups.add(jobId);
+  try {
+    for (let attempt = 0; attempt < 1800; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const data = await backupsClient.list();
+      const backup = data.backups.find((item) => item.id === jobId);
+      if (!backup || backup.state === "running") {
+        continue;
+      }
+      const bytes = backup.files.reduce((sum, file) => sum + (file.bytes || 0), 0);
+      await auditLog.append({
+        category: "backup",
+        action: backup.state === "success" ? "backup.completed" : "backup.failed",
+        outcome: backup.state === "success" ? "success" : "failure",
+        operator,
+        details: {
+          jobId,
+          state: backup.state,
+          files: backup.files.length,
+          bytes,
+          externalCopy: backup.externalCopy?.state || "pending",
+          restoreVerification: backup.restoreVerification?.state || "pending",
+        },
+      });
+      return;
+    }
+    await auditLog.append({
+      category: "backup",
+      action: "backup.monitor-timeout",
+      outcome: "attention",
+      operator,
+      details: { jobId },
+    });
+  } catch {
+    await auditLog.append({
+      category: "backup",
+      action: "backup.monitor-failed",
+      outcome: "attention",
+      operator,
+      details: { jobId },
+    }).catch(() => {});
+  } finally {
+    monitoredBackups.delete(jobId);
+  }
+}
+
+async function handleApi(request, response, url) {
+  const { pathname } = url;
 
   if (pathname === "/api/health") {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      response.setHeader("Allow", "GET, HEAD");
+      sendJson(response, 405, { message: "Método no permitido" });
+      return;
+    }
     sendJson(response, 200, {
       status: "ok",
       service: "kontora-ops-panel",
-      mode: "read-only",
+      mode: backupsConfig.enabled ? "controlled-operations" : "read-only",
       authentication: authConfig.mode,
       audit: auditLog.status(),
+      backups: { enabled: backupsConfig.enabled },
     });
     return;
   }
 
   const identity = await requireIdentity(request);
   if (pathname === "/api/v1/session") {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      response.setHeader("Allow", "GET, HEAD");
+      sendJson(response, 405, { message: "Método no permitido" });
+      return;
+    }
     sendJson(response, 200, {
       email: identity.email,
       provider: identity.provider,
       environment: diagnosticsConfig.environment,
-      mode: "read-only",
+      mode: backupsConfig.enabled ? "controlled-operations" : "read-only",
+      csrfToken: csrfGuard?.issue(identity) || null,
     });
     return;
   }
 
   if (pathname === "/api/v1/diagnostics") {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      response.setHeader("Allow", "GET, HEAD");
+      sendJson(response, 405, { message: "Método no permitido" });
+      return;
+    }
     const [diagnostics, databaseDiagnostics] = await Promise.all([
       collectDiagnostics(diagnosticsConfig),
       collectDatabaseDiagnostics(databaseDiagnosticsConfig),
@@ -136,6 +241,11 @@ async function handleApi(request, response, url) {
   }
 
   if (pathname === "/api/v1/audit") {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      response.setHeader("Allow", "GET, HEAD");
+      sendJson(response, 405, { message: "Método no permitido" });
+      return;
+    }
     const requestedLimit = url.searchParams.get("limit") || `${auditConfig.defaultLimit}`;
     if (!/^\d+$/.test(requestedLimit) || Number.parseInt(requestedLimit, 10) < 1) {
       sendJson(response, 400, { message: "El límite de bitácora no es válido" });
@@ -147,6 +257,74 @@ async function handleApi(request, response, url) {
       operator: identity.email,
       environment: diagnosticsConfig.environment,
     });
+    return;
+  }
+
+  if (pathname === "/api/v1/backups") {
+    if (request.method === "GET" || request.method === "HEAD") {
+      if (!backupsConfig.enabled) {
+        sendJson(response, 200, {
+          generatedAt: new Date().toISOString(),
+          enabled: false,
+          activeJob: null,
+          backups: [],
+        });
+        return;
+      }
+      sendJson(response, 200, {
+        ...(await backupsClient.list()),
+        enabled: true,
+      });
+      return;
+    }
+    if (request.method === "POST") {
+      if (request.headers["content-type"] !== "application/json") {
+        sendJson(response, 415, { message: "Se requiere application/json" });
+        return;
+      }
+      requireCsrf(request, identity);
+      const body = await readJson(request);
+      if (body.confirmation !== "RESPALDAR") {
+        sendJson(response, 400, { message: "La confirmación del respaldo no coincide" });
+        return;
+      }
+      const jobId = request.headers["idempotency-key"] || randomUUID();
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+          .test(jobId)
+      ) {
+        sendJson(response, 400, { message: "Idempotency-Key no es válido" });
+        return;
+      }
+      await auditLog.append({
+        category: "backup",
+        action: "backup.requested",
+        outcome: "success",
+        operator: identity.email,
+        details: { jobId },
+      });
+      let result;
+      try {
+        result = await backupsClient.start({
+          jobId,
+          operator: identity.email,
+        });
+      } catch (error) {
+        await auditLog.append({
+          category: "backup",
+          action: "backup.rejected",
+          outcome: "failure",
+          operator: identity.email,
+          details: { jobId },
+        });
+        throw error;
+      }
+      void monitorBackup(jobId, identity.email);
+      sendJson(response, result.accepted ? 202 : 200, result);
+      return;
+    }
+    response.setHeader("Allow", "GET, HEAD, POST");
+    sendJson(response, 405, { message: "Método no permitido" });
     return;
   }
 
@@ -214,6 +392,10 @@ const server = createServer(async (request, response) => {
       sendJson(response, error.status, { message: error.message });
       return;
     }
+    if (error instanceof BackupExecutorError || Number.isInteger(error.status)) {
+      sendJson(response, error.status || 500, { message: error.message });
+      return;
+    }
     console.error("Solicitud fallida", {
       method: request.method,
       url: request.url,
@@ -255,12 +437,12 @@ async function start() {
     operator: "system",
     details: {
       authentication: authConfig.mode,
-      mode: "read-only",
+      mode: backupsConfig.enabled ? "controlled-operations" : "read-only",
     },
   });
   server.listen(port, bindAddress, () => {
     console.log(
-      `Kontora Ops Panel escuchando en ${bindAddress}:${port} (${authConfig.mode}, solo lectura)`,
+      `Kontora Ops Panel escuchando en ${bindAddress}:${port} (${authConfig.mode}, operaciones controladas)`,
     );
   });
 }

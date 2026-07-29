@@ -56,7 +56,7 @@ venta, usuario, caja, evidencia ni dato de los volúmenes Docker. El reinicio
 debe borrar de forma coordinada PostgreSQL y los archivos de Storage.
 
 Seguir la
-[variante Windows de la guía de reinicio total](reinicio-total-datos/README.md#variante-a-windows-local).
+[guía local de reinicio total](reinicio-total-datos/README.md).
 
 ## Servidor de produccion
 
@@ -74,7 +74,10 @@ y los archivos físicos. No se debe cambiar únicamente el volumen PostgreSQL,
 porque los objetos anteriores quedarían inconsistentes.
 
 Seguir la
-[variante VPS de la guía de reinicio total](reinicio-total-datos/README.md#variante-b-vps-de-producción).
+[sección de producción de la guía de reinicio total](reinicio-total-datos/README.md#producción)
+y adaptar previamente la
+[guía de respaldo y restauración](respaldo-restauracion/README.md) a los nombres
+de volumen, rutas y archivos Compose del VPS.
 
 ## Validacion realizada
 

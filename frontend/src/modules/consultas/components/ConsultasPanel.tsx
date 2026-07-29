@@ -1,18 +1,24 @@
-import { AlertCircle, Boxes, Building2, CheckCircle2, ClipboardList, Eye, FileImage, FileUp, Landmark, ReceiptText, RefreshCw, ShoppingBag, WalletCards, X } from "lucide-react";
+import { AlertCircle, Boxes, Building2, CheckCircle2, ClipboardList, Eye, FileImage, FileUp, Gift, Landmark, ReceiptText, RefreshCw, ShoppingBag, TriangleAlert, WalletCards, X } from "lucide-react";
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UserRole } from "../../../app/routes/appRoutes";
 import { ApiClientError } from "../../../shared/services/apiClient";
 import { formatDisplayName } from "../../../shared/utils/displayText";
 import { EvidenceGallery } from "../../evidencias/components/EvidenceGallery";
+import { obtenerCortesiasPeriodo } from "../../cortesias/services/cortesiasService";
+import type { Cortesia } from "../../cortesias/types";
 import {
+  cargarEvidenciaPerdidaInventario,
   cargarEvidenciaConsignacionBancaria,
   cargarEvidenciaGastoCaja,
   cargarEvidenciaPagoServicio,
   listarEvidenciasConsignacionBancaria,
   listarEvidenciasGastoCaja,
   listarEvidenciasPagoServicio,
+  listarEvidenciasPerdidaInventario,
 } from "../../evidencias/services/evidenciasService";
 import type { ArchivoEvidenciaResponse } from "../../evidencias/types";
+import { obtenerPerdidasPeriodo } from "../../inventario/services/inventarioService";
+import type { PerdidaInventario } from "../../inventario/types";
 import { formatHoraVenta, resumenPaquetesVasos, resumenTiposVenta, resumenTiposVaso } from "../../ventas/utils/ventaDisplay";
 import {
   consultarCierrePorFecha,
@@ -35,10 +41,11 @@ import type {
 } from "../types";
 
 type LoadState = "loading" | "success" | "error";
-type ConsultaVista = "ventas" | "gastos" | "inventario" | "cierre" | "deposito";
-type EvidenceSource = "gasto" | "consignacion" | "servicio";
+type ConsultaVista = "ventas" | "gastos" | "inventario" | "novedades" | "cierre" | "deposito";
+type EvidenceSource = "gasto" | "consignacion" | "servicio" | "perdida";
 
 type ConsultaEvidenceTarget = {
+  canUpload?: boolean;
   id: string;
   label: string;
   source: EvidenceSource;
@@ -50,7 +57,7 @@ type ConsultasPanelProps = {
   token: string;
 };
 
-const ADMIN_VIEWS: ConsultaVista[] = ["ventas", "gastos", "inventario", "cierre", "deposito"];
+const ADMIN_VIEWS: ConsultaVista[] = ["ventas", "gastos", "inventario", "novedades", "cierre", "deposito"];
 const VENDEDOR_VIEWS: ConsultaVista[] = ["ventas", "gastos"];
 const FILE_ACCEPT = "image/*,.pdf";
 const UNIDADES_POR_PAQUETE = 20;
@@ -144,6 +151,8 @@ function tabLabel(vista: ConsultaVista) {
       return "Gastos";
     case "inventario":
       return "Inventario";
+    case "novedades":
+      return "Cortesias y perdidas";
     case "cierre":
       return "Cierre";
     case "deposito":
@@ -167,6 +176,8 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
   const [inventario, setInventario] = useState<ConsultaInventarioActual[]>([]);
   const [movimientosInventario, setMovimientosInventario] = useState<ConsultaMovimientoInventario[]>([]);
   const [ventasVasos, setVentasVasos] = useState<ConsultaVentasVasos[]>([]);
+  const [cortesias, setCortesias] = useState<Cortesia[]>([]);
+  const [perdidas, setPerdidas] = useState<PerdidaInventario[]>([]);
   const [cierre, setCierre] = useState<ConsultaCierreDiario | null>(null);
   const [movimientosDeposito, setMovimientosDeposito] = useState<ConsultaMovimientoDeposito[]>([]);
   const [evidenceTarget, setEvidenceTarget] = useState<ConsultaEvidenceTarget | null>(null);
@@ -200,6 +211,13 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
         setInventario(inventarioResponse);
         setMovimientosInventario(movimientosResponse);
         setVentasVasos(ventasVasosResponse);
+      } else if (vista === "novedades") {
+        const [cortesiasResponse, perdidasResponse] = await Promise.all([
+          obtenerCortesiasPeriodo(token, filtroAplicado),
+          obtenerPerdidasPeriodo(token, filtroAplicado),
+        ]);
+        setCortesias(cortesiasResponse);
+        setPerdidas(perdidasResponse);
       } else if (vista === "cierre") {
         try {
           setCierre(await consultarCierrePorFecha(token, filtroAplicado.fechaFin ?? filtroAplicado.fechaInicio));
@@ -277,7 +295,9 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
         ? await listarEvidenciasGastoCaja(token, target.id)
         : target.source === "consignacion"
           ? await listarEvidenciasConsignacionBancaria(token, target.id)
-          : await listarEvidenciasPagoServicio(token, target.id);
+          : target.source === "servicio"
+            ? await listarEvidenciasPagoServicio(token, target.id)
+            : await listarEvidenciasPerdidaInventario(token, target.id);
       if (evidenceRequestId.current !== requestId) {
         return;
       }
@@ -298,7 +318,12 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
   }
 
   async function adjuntarEvidencia() {
-    if (!isAdministrative || !evidenceTarget || !evidenceFile) {
+    if (
+      !isAdministrative
+      || !evidenceTarget
+      || evidenceTarget.canUpload === false
+      || !evidenceFile
+    ) {
       return;
     }
 
@@ -313,8 +338,10 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
         await cargarEvidenciaGastoCaja(token, target.id, file);
       } else if (target.source === "consignacion") {
         await cargarEvidenciaConsignacionBancaria(token, target.id, file);
-      } else {
+      } else if (target.source === "servicio") {
         await cargarEvidenciaPagoServicio(token, target.id, file);
+      } else {
+        await cargarEvidenciaPerdidaInventario(token, target.id, file);
       }
 
       if (evidenceRequestId.current !== requestId) {
@@ -367,6 +394,16 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
     });
   }
 
+  function abrirEvidenciasPerdida(perdida: PerdidaInventario) {
+    void abrirEvidencias({
+      canUpload: perdida.estado === "registrada",
+      id: perdida.idPerdidaInventario,
+      label: `Perdida de vasos de ${perdida.onzas} oz`,
+      source: "perdida",
+      subtitle: `${perdida.nombreUsuarioRegistro} · ${formatDateTime(perdida.fechaRegistro)}`,
+    });
+  }
+
   const resumen = useMemo(() => {
     if (activeView === "ventas") {
       const ventasRegistradas = ventas.filter((venta) => venta.estadoVenta === "registrada");
@@ -409,6 +446,39 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
       ];
     }
 
+    if (activeView === "novedades") {
+      const cortesiasRegistradas = cortesias.filter((item) => item.estado === "registrada");
+      const perdidasRegistradas = perdidas.filter((item) => item.estado === "registrada");
+      return [
+        {
+          detail: "Vasos entregados sin cobro",
+          label: "Cortesias",
+          value: String(cortesiasRegistradas.reduce(
+            (total, item) => total + item.detalles.reduce((sum, detail) => sum + detail.cantidad, 0),
+            0,
+          )),
+        },
+        {
+          detail: "Vasos descontados por perdida",
+          label: "Perdidas",
+          value: String(perdidasRegistradas.reduce((total, item) => total + item.cantidad, 0)),
+        },
+        {
+          detail: "Perdidas registradas sin fotografia",
+          label: "Evidencias pendientes",
+          value: String(perdidasRegistradas.filter((item) => item.evidencias.length === 0).length),
+        },
+        {
+          detail: "Registros anulados conservados",
+          label: "Anulados",
+          value: String(
+            cortesias.filter((item) => item.estado === "anulada").length
+            + perdidas.filter((item) => item.estado === "anulada").length,
+          ),
+        },
+      ];
+    }
+
     if (activeView === "cierre") {
       return cierre ? [
         { detail: "Total de jornada", label: "Ventas", value: formatCurrency(cierre.totalVentas) },
@@ -432,7 +502,7 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
       { detail: "Consignaciones y servicios", label: "Salidas", value: formatCurrency(salidas.reduce((total, item) => total + item.valorMovimiento, 0)) },
       { detail: "Movimientos consultados", label: "Registros", value: String(movimientosDeposito.length) },
     ];
-  }, [activeView, cierre, filtroAplicado, gastos, inventario, movimientosDeposito, movimientosInventario, ventas, ventasVasos]);
+  }, [activeView, cierre, cortesias, filtroAplicado, gastos, inventario, movimientosDeposito, movimientosInventario, perdidas, ventas, ventasVasos]);
 
   return (
     <section className="consultas-panel" aria-label="Consultas y evidencias">
@@ -574,6 +644,11 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
                   <span>
                     <strong>General {item.cantidadActualGeneral ?? 0}</strong>
                     <small>{item.idCajaDiariaAbierta ? `Diario ${item.cantidadFinalTeoricaDiaria ?? 0}` : "Sin caja abierta"}</small>
+                    {item.idCajaDiariaAbierta ? (
+                      <small>
+                        Vendidos {item.cantidadVendidaDiaria ?? 0} · Cortesias {item.cantidadCortesiaDiaria ?? 0} · Perdidas {item.cantidadPerdidaDiaria ?? 0}
+                      </small>
+                    ) : null}
                   </span>
                 </li>
               ))}
@@ -627,6 +702,93 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
                     <small>{formatDateTime(movimiento.fechaMovimiento)}</small>
                   </span>
                   <span className="status-badge active">{movimiento.tipoStock}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      ) : null}
+
+      {activeView === "novedades" && isAdministrative ? (
+        <div className="consultas-split-data">
+          <section className="consultas-data-panel" aria-labelledby="consultas-cortesias-title">
+            <div className="compact-heading">
+              <div>
+                <span className="eyebrow">Salida sin cobro</span>
+                <h2 id="consultas-cortesias-title">Cortesias</h2>
+              </div>
+              <Gift size={22} aria-hidden="true" />
+            </div>
+            {loadState === "success" && cortesias.length === 0 ? (
+              <p className="empty-copy">No hay cortesias para el periodo seleccionado.</p>
+            ) : null}
+            <ul className="consultas-record-list">
+              {cortesias.map((cortesia) => (
+                <li className="consultas-record-row novedades" key={cortesia.idCortesia}>
+                  <span>
+                    <strong>
+                      {cortesia.tipoBeneficiario === "trabajador"
+                        ? cortesia.nombreUsuarioBeneficiario
+                        : cortesia.referenciaOtro || "Otro beneficiario"}
+                    </strong>
+                    <small>
+                      {cortesia.nombreUsuarioRegistro} · {formatDateTime(cortesia.fechaRegistro)}
+                    </small>
+                    <small>
+                      {cortesia.detalles
+                        .map((detail) => `${formatDisplayName(detail.nombreTipoGranizado)} · ${detail.onzas} oz × ${detail.cantidad}`)
+                        .join(" | ")}
+                    </small>
+                  </span>
+                  <span className={`consultas-status ${cortesia.estado === "anulada" ? "anulado" : "activo"}`}>
+                    {cortesia.estado}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="consultas-data-panel" aria-labelledby="consultas-perdidas-title">
+            <div className="compact-heading">
+              <div>
+                <span className="eyebrow">Perdidas operativas</span>
+                <h2 id="consultas-perdidas-title">Vasos rotos</h2>
+              </div>
+              <TriangleAlert size={22} aria-hidden="true" />
+            </div>
+            {loadState === "success" && perdidas.length === 0 ? (
+              <p className="empty-copy">No hay perdidas para el periodo seleccionado.</p>
+            ) : null}
+            <ul className="consultas-record-list">
+              {perdidas.map((perdida) => (
+                <li className="consultas-record-row novedades perdida" key={perdida.idPerdidaInventario}>
+                  <span>
+                    <strong>{perdida.onzas} oz · {perdida.cantidad} {perdida.cantidad === 1 ? "vaso" : "vasos"}</strong>
+                    <small>
+                      {perdida.nombreUsuarioRegistro} · {formatDateTime(perdida.fechaRegistro)}
+                    </small>
+                    <small>{perdida.motivo}</small>
+                  </span>
+                  <span>
+                    <strong>
+                      {perdida.evidencias.length > 0
+                        ? `${perdida.evidencias.length} evidencia(s)`
+                        : "Evidencia pendiente"}
+                    </strong>
+                    <small>Carga permitida aun con la caja cerrada</small>
+                  </span>
+                  <span className={`consultas-status ${perdida.estado === "anulada" ? "anulado" : "activo"}`}>
+                    {perdida.estado}
+                  </span>
+                  <button
+                    aria-label={`Ver evidencias de perdida de vasos de ${perdida.onzas} onzas`}
+                    className="icon-button"
+                    onClick={() => abrirEvidenciasPerdida(perdida)}
+                    title="Ver o adjuntar evidencia"
+                    type="button"
+                  >
+                    <Eye size={18} aria-hidden="true" />
+                  </button>
                 </li>
               ))}
             </ul>
@@ -731,7 +893,7 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
             </button>
           </div>
 
-          {isAdministrative ? (
+          {isAdministrative && evidenceTarget.canUpload !== false ? (
             <div className="consultas-evidence-upload">
               <div className="evidence-upload-row">
                 <label className="file-picker-control">
@@ -740,7 +902,7 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
                   <input
                     ref={evidenceFileInputRef}
                     type="file"
-                    accept={FILE_ACCEPT}
+                    accept={evidenceTarget.source === "perdida" ? "image/*" : FILE_ACCEPT}
                     onChange={seleccionarArchivoEvidencia}
                   />
                 </label>
@@ -754,7 +916,11 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
                   {isUploadingEvidence ? "Adjuntando" : "Adjuntar evidencia"}
                 </button>
               </div>
-              <small>Si la carga falla, el archivo permanece seleccionado para poder reintentar.</small>
+              <small>
+                {evidenceTarget.source === "perdida"
+                  ? "La perdida admite fotografias incluso despues del cierre de la caja."
+                  : "Si la carga falla, el archivo permanece seleccionado para poder reintentar."}
+              </small>
             </div>
           ) : null}
 

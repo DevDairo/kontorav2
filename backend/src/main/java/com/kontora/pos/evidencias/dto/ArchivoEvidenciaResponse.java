@@ -9,6 +9,7 @@ public record ArchivoEvidenciaResponse(
         UUID idGastoCaja,
         UUID idConsignacionBancaria,
         UUID idPagoServicio,
+        UUID idPerdidaInventario,
         String urlArchivo,
         String nombreArchivo,
         String tipoArchivo,

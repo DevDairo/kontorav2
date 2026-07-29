@@ -6,9 +6,12 @@ import type {
   ExistenciaInventarioDiario,
   ExistenciaInventarioGeneral,
   InventarioSnapshot,
+  AnularPerdidaInventarioRequest,
+  PerdidaInventario,
   PaqueteVasosAbiertoResponse,
   RegistrarConsumoDiarioInventarioRequest,
   RegistrarPaqueteVasosRequest,
+  RegistrarPerdidaInventarioRequest,
   ResolverAjusteInventarioRequest,
   SolicitarAjusteInventarioRequest,
   VentasVasosDiarias,
@@ -76,6 +79,43 @@ export function registrarPaqueteVasos(token: string, request: RegistrarPaqueteVa
 export function registrarConsumoDiario(token: string, request: RegistrarConsumoDiarioInventarioRequest) {
   return apiClient.post<ConsumoDiarioInventarioResponse>(
     "/inventario/consumos-diarios",
+    jsonBody(request),
+    { token },
+  );
+}
+
+export function registrarPerdidaInventario(
+  token: string,
+  request: RegistrarPerdidaInventarioRequest,
+) {
+  return apiClient.post<PerdidaInventario>(
+    "/inventario/perdidas-vasos",
+    jsonBody(request),
+    { token },
+  );
+}
+
+export function obtenerPerdidasCajaAbierta(token: string) {
+  return apiClient.get<PerdidaInventario[]>("/inventario/perdidas-vasos/caja-abierta", { token });
+}
+
+export function obtenerPerdidasPeriodo(
+  token: string,
+  filters: { fechaInicio: string; fechaFin?: string },
+) {
+  return apiClient.get<PerdidaInventario[]>(
+    `/inventario/perdidas-vasos${optionalQuery(filters)}`,
+    { token },
+  );
+}
+
+export function anularPerdidaInventario(
+  token: string,
+  idPerdidaInventario: string,
+  request: AnularPerdidaInventarioRequest,
+) {
+  return apiClient.post<PerdidaInventario>(
+    `/inventario/perdidas-vasos/${encodeURIComponent(idPerdidaInventario)}/anular`,
     jsonBody(request),
     { token },
   );

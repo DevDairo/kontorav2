@@ -2,14 +2,19 @@
 
 ## Estado
 
-Diseño aprobado técnicamente para implementación por fases. La Fase 1A/1B de
-solo lectura fue validada con Docker en el equipo local. El panel conserva la
+Diseño aprobado técnicamente para implementación por fases. La Fase 1 de
+diagnóstico fue validada con Docker en el equipo local. La Fase 2A de creación
+local de respaldos está implementada y pendiente de validación integral con los
+volúmenes reales. El panel conserva la
 identidad visual de Kontora mediante el mismo shell con sidebar, barra superior,
 paleta, tarjetas y navegación adaptable. Ninguna operación destructiva está
 expuesta.
 
 La ejecución local está documentada en
 [infra/ops/README.md](../../infra/ops/README.md).
+El procedimiento manual para copiar el paquete fuera del volumen y ejecutar una
+restauración completa está en
+[Respaldo y restauración local](../respaldo-restauracion/README.md).
 
 ## Objetivo
 
@@ -49,9 +54,10 @@ Todavía faltan:
 - un ciclo de vida de evidencia que distinga activa, pendiente, eliminada y
   error;
 - endpoints PDF/XLSX;
-- automatización de respaldos con manifiesto y restauración aislada;
-- una bitácora operacional independiente de la base que puede reiniciarse;
-- el servicio ejecutor restringido que controle Docker desde el host.
+- cifrado y copia externa de respaldos;
+- restauración aislada y verificación de una evidencia conocida;
+- conciliación automática de trabajos de respaldo después de reiniciar el
+  panel.
 
 ## Dominio y Cloudflare
 
@@ -122,9 +128,13 @@ volumen.
 
 ### Ejecutor local
 
-El proceso con permisos sobre Docker debe ejecutarse en el host con un usuario
-dedicado. La API web solo puede solicitar acciones incluidas en una lista
-cerrada:
+La Fase 2A incorpora `ops-executor` como servicio separado. Es el único
+componente del plano operativo que monta el socket Docker; no publica puertos,
+solo comparte una red interna con `ops-panel`, usa una credencial propia y
+acepta rutas cerradas para listar o crear respaldos. El panel conserva el proxy
+Docker de diagnóstico con `POST=0`.
+
+La API web solo puede solicitar acciones incluidas en una lista cerrada:
 
 ```text
 health.snapshot
@@ -141,9 +151,10 @@ No se aceptan comandos, rutas, nombres de volumen, archivos Compose ni
 argumentos arbitrarios enviados por el navegador. Los nombres y rutas permitidos
 se definen durante la instalación.
 
-En producción, la comunicación entre la API y el ejecutor debe usar un socket
-Unix dedicado o un canal local autenticado. En desarrollo Windows puede usar
-`127.0.0.1` con una credencial generada y sin publicar el puerto en la red.
+En esta entrega solamente `backup.create` y el listado de trabajos están
+habilitados. Restauración, eliminación de evidencias y reinicio total no tienen
+endpoint ejecutable. En producción, panel y ejecutor comparten una red Docker
+interna autenticada; en desarrollo tampoco se publica el puerto del ejecutor.
 
 ### Diagnóstico interno de PostgreSQL
 
@@ -352,6 +363,12 @@ OPS_AUDIT_VOLUME_NAME=kontora_ops_audit_local_data
 OPS_AUDIT_DEFAULT_LIMIT=100
 OPS_AUDIT_MAX_BYTES=52428800
 
+OPS_EXECUTOR_TOKEN=
+OPS_BACKUPS_ENABLED=true
+OPS_BACKUP_VOLUME_NAME=kontora_ops_backups_local_data
+OPS_BACKUP_TIMEOUT_MS=300000
+OPS_RELEASE_VERSION=local-working-tree
+
 OPS_EXTERNAL_BACKUP_PROVIDER=filesystem
 OPS_EXTERNAL_BACKUP_PATH=
 
@@ -428,6 +445,26 @@ restauración controlada.
 
 Cierre: una copia generada por el panel se restaura completamente sin usar datos
 del stack original.
+
+Estado de implementación:
+
+- servicio ejecutor separado, sin puerto publicado: implementado;
+- credencial interna, CSRF temporal e idempotencia: implementados;
+- exclusión de trabajos concurrentes y recuperación del estado inicial:
+  implementadas;
+- `pg_dump` de `public` y `storage`: implementado;
+- archivo de Storage con atributos `user.supabase.*`: implementado;
+- `manifest.json`, `manifest.sha256` y SHA-256 de ambos archivos:
+  implementados;
+- volumen local fuera del stack reiniciable: implementado;
+- listado web y eventos de bitácora: implementados;
+- validación Docker con datos reales: pendiente;
+- cifrado y copia externa: pendiente;
+- restauración aislada y hash de evidencia conocida: pendiente.
+
+Hasta completar los puntos pendientes, la interfaz usa “Empaquetado” y no
+“Restaurable”. El volumen local protege frente al reinicio del POS, pero no
+frente a pérdida del equipo o de la VPS.
 
 ### Fase 3. Exportaciones PDF y XLSX
 

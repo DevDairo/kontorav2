@@ -44,6 +44,9 @@ public class ExistenciaInventarioDiario {
     @Column(name = "cantidad_perdida", nullable = false)
     private Integer cantidadPerdida;
 
+    @Column(name = "cantidad_cortesia", nullable = false)
+    private Integer cantidadCortesia;
+
     @Column(name = "cantidad_ajustada", nullable = false)
     private Integer cantidadAjustada;
 
@@ -106,6 +109,14 @@ public class ExistenciaInventarioDiario {
 
     public void setCantidadPerdida(Integer cantidadPerdida) {
         this.cantidadPerdida = cantidadPerdida;
+    }
+
+    public Integer getCantidadCortesia() {
+        return cantidadCortesia;
+    }
+
+    public void setCantidadCortesia(Integer cantidadCortesia) {
+        this.cantidadCortesia = cantidadCortesia;
     }
 
     public Integer getCantidadAjustada() {

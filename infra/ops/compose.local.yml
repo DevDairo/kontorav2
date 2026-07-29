@@ -66,8 +66,15 @@ services:
       OPS_AUDIT_DEFAULT_LIMIT: ${OPS_AUDIT_DEFAULT_LIMIT:-100}
       OPS_AUDIT_MAX_BYTES: ${OPS_AUDIT_MAX_BYTES:-52428800}
       OPS_AUDIT_VOLUME: ${OPS_AUDIT_VOLUME_NAME:-kontora_ops_audit_local_data}
+      OPS_BACKUPS_ENABLED: ${OPS_BACKUPS_ENABLED:-true}
+      OPS_EXECUTOR_URL: http://ops-executor:8091
+      OPS_EXECUTOR_TOKEN: ${OPS_EXECUTOR_TOKEN:?Defina OPS_EXECUTOR_TOKEN en infra/ops/.env}
+      OPS_BACKUP_VOLUME: ${OPS_BACKUP_VOLUME_NAME:-kontora_ops_backups_local_data}
     depends_on:
-      - docker-api-proxy
+      docker-api-proxy:
+        condition: service_started
+      ops-executor:
+        condition: service_healthy
     ports:
       - "${OPS_HOST_BIND_ADDRESS:-127.0.0.1}:${OPS_HOST_PORT:-8090}:8090"
     volumes:
@@ -81,8 +88,48 @@ services:
       - no-new-privileges:true
     networks:
       - docker_readonly
+      - ops_control
       - pos_database
       - tunnel
+
+  ops-executor:
+    build:
+      context: ../../ops-executor
+      dockerfile: Dockerfile
+    container_name: kontora_ops_executor_local
+    restart: unless-stopped
+    stop_grace_period: 5m
+    environment:
+      OPS_ENVIRONMENT: ${OPS_ENVIRONMENT:-local}
+      OPS_EXECUTOR_BIND_ADDRESS: 0.0.0.0
+      OPS_EXECUTOR_PORT: 8091
+      OPS_EXECUTOR_TOKEN: ${OPS_EXECUTOR_TOKEN:?Defina OPS_EXECUTOR_TOKEN en infra/ops/.env}
+      OPS_BACKUP_ROOT: /var/lib/kontora-ops/backups
+      OPS_STORAGE_SOURCE: /source/storage
+      OPS_STORAGE_BUCKET: ${OPS_STORAGE_BUCKET:-kontoraimagenes}
+      OPS_RELEASE_VERSION: ${OPS_RELEASE_VERSION:-local-working-tree}
+      OPS_POS_COMPOSE_FILES: infra/compose.local.yml
+      OPS_POSTGRES_CONTAINER: ${OPS_POSTGRES_CONTAINER:-kontora_pos_postgres_local}
+      OPS_STORAGE_CONTAINER: ${OPS_STORAGE_CONTAINER:-kontora_pos_storage_local}
+      OPS_BACKEND_CONTAINER: ${OPS_BACKEND_CONTAINER:-kontora_pos_backend_local}
+      OPS_FRONTEND_CONTAINER: ${OPS_FRONTEND_CONTAINER:-kontora_pos_frontend_local}
+      OPS_CLOUDFLARED_CONTAINER: ${OPS_CLOUDFLARED_CONTAINER:-kontora_pos_cloudflared_local}
+      OPS_POSTGRES_VOLUME: ${OPS_POSTGRES_VOLUME:-kontora_pos_postgres_local_data}
+      OPS_STORAGE_VOLUME: ${OPS_STORAGE_VOLUME:-kontora_pos_storage_local_data}
+      OPS_BACKUP_TIMEOUT_MS: ${OPS_BACKUP_TIMEOUT_MS:-300000}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ops_backups_data:/var/lib/kontora-ops/backups
+      - pos_storage_data:/source/storage:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - ops_control
 
   ops-db-init:
     image: postgres:16-alpine
@@ -135,6 +182,8 @@ services:
 networks:
   docker_readonly:
     internal: true
+  ops_control:
+    internal: true
   pos_database:
     external: true
     name: ${OPS_POS_DATABASE_NETWORK:-infra_database}
@@ -143,3 +192,8 @@ networks:
 volumes:
   ops_audit_data:
     name: ${OPS_AUDIT_VOLUME_NAME:-kontora_ops_audit_local_data}
+  ops_backups_data:
+    name: ${OPS_BACKUP_VOLUME_NAME:-kontora_ops_backups_local_data}
+  pos_storage_data:
+    external: true
+    name: ${OPS_STORAGE_VOLUME:-kontora_pos_storage_local_data}

@@ -433,6 +433,7 @@ docker compose --env-file infra/.env -f infra/compose.prod.yml up -d --no-deps -
 ## Datos, respaldo y recuperacion
 
 - [Reinicio total de PostgreSQL, bucket y gerente inicial](docs/reinicio-total-datos/README.md)
+- [Respaldo y restauracion coordinada de PostgreSQL y Storage](docs/respaldo-restauracion/README.md)
 - [Panel web de operaciones, respaldos, exportaciones y evidencias](docs/panel-operaciones/README.md)
 - [PostgreSQL y backend](docs/migracion-infraestructura/01-fase-postgresql-backend.md)
 - [Storage autoalojado](docs/migracion-infraestructura/02-fase-supabase-storage-local.md)
@@ -488,6 +489,7 @@ La guia vigente comienza en [docs/00-indice.md](docs/00-indice.md).
 | Auditoria | [13](docs/13-auditoria.md) |
 | Gerente inicial | [14](docs/14-credenciales-gerente-inicial.md) |
 | Cambios recientes validados | [15](docs/15-cambios-recientes-validados.md) |
+| Cortesias, perdidas y correcciones de inventario | [16](docs/16-cortesias-perdidas-y-correcciones-inventario.md) |
 
 `docs/historico-desarrollo` conserva requisitos y decisiones anteriores. Sus
 referencias a Vercel o Supabase Cloud son historicas y no describen el

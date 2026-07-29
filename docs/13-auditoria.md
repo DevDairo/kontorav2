@@ -14,7 +14,9 @@ Permitir al gerente revisar la trazabilidad de acciones sensibles sin modificar 
 - Visualizacion de usuario responsable, fecha, entidad afectada, accion, IP, descripcion y snapshots de valores.
 - Presentacion legible de snapshots JSON mediante puntos de lectura.
 - Resolucion de identificadores de usuario a nombre y usuario cuando la informacion esta disponible.
-- Registro de accesos, sesiones, aperturas, cierres, anulaciones, cambios administrativos, ajustes, transferencias y evidencias segun el flujo correspondiente.
+- Registro de accesos, sesiones, aperturas, cierres, anulaciones, cambios
+  administrativos, ajustes, transferencias, cortesías, pérdidas y evidencias
+  segun el flujo correspondiente.
 
 ## Permisos
 
@@ -30,6 +32,8 @@ Permitir al gerente revisar la trazabilidad de acciones sensibles sin modificar 
 - Para ventas, gastos, inventario, cierre o deposito diarios se usa Consultas.
 - Un resultado vacio puede significar que no ocurrio una accion sensible para el periodo elegido.
 - La fecha filtrada es `fecha_accion`, no la fecha operativa de caja.
+- Crear o anular una cortesía, crear o anular una pérdida y adjuntar su
+  evidencia generan eventos separados; no se sobrescribe el evento anterior.
 
 ## Endpoint principal
 

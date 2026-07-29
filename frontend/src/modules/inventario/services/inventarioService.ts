@@ -1,4 +1,5 @@
 import { ApiClientError, apiClient } from "../../../shared/services/apiClient";
+import { obtenerItemsInventario } from "../../catalogos/services/catalogosService";
 import type {
   AjusteInventario,
   ConsumoDiarioInventarioResponse,
@@ -113,17 +114,27 @@ export function rechazarAjusteInventario(
 }
 
 export async function obtenerInventarioSnapshot(token: string): Promise<InventarioSnapshot> {
-  const [existenciasGenerales, existenciasDiarias, ajustes, ventasVasosDiarias] = await Promise.all([
+  const [
+    existenciasGenerales,
+    existenciasDiarias,
+    ajustes,
+    ventasVasosDiarias,
+    itemsInventarioActivos,
+  ] = await Promise.all([
     obtenerExistenciasGenerales(token),
     obtenerExistenciasDiariasAbiertaOpcional(token),
     obtenerAjustesInventario(token),
     obtenerVentasVasosDiariaAbierta(token),
+    obtenerItemsInventario(token),
   ]);
+  const idsItemsActivos = new Set(itemsInventarioActivos.map((item) => item.idItemInventario));
 
   return {
     ajustes,
     existenciasDiarias,
-    existenciasGenerales,
+    existenciasGenerales: existenciasGenerales.filter((item) =>
+      idsItemsActivos.has(item.idItemInventario),
+    ),
     ventasVasosDiarias,
   };
 }

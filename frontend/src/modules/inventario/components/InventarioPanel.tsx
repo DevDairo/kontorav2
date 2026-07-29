@@ -34,6 +34,7 @@ import type {
 type LoadState = "loading" | "success" | "error";
 type InventoryView = "consulta" | "paquetes" | "consumo" | "ajuste" | "movimientos";
 type DailyStockEntryMode = "paquetes" | "unidades";
+type GeneralStockAdjustmentDirection = "entrada" | "salida";
 
 type InventarioPanelProps = {
   token: string;
@@ -48,7 +49,10 @@ type LastAction =
   | { type: "ajuste-aprobado"; response: AjusteInventario }
   | { type: "ajuste-rechazado"; response: AjusteInventario };
 
-const DEFAULT_STOCK_ENTRY_REASON = "Reabastecimiento";
+const DEFAULT_STOCK_ADJUSTMENT_REASON: Record<GeneralStockAdjustmentDirection, string> = {
+  entrada: "Reabastecimiento",
+  salida: "Retiro de stock general",
+};
 const DAILY_STOCK_REPLENISHMENT_REASON = "Reabastecimiento de stock diario";
 const UNIDADES_POR_PAQUETE = 20;
 
@@ -333,9 +337,10 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
   const [cantidadConsumida, setCantidadConsumida] = useState("1");
   const [observacionConsumo, setObservacionConsumo] = useState("");
   const [idItemAjuste, setIdItemAjuste] = useState("");
+  const [sentidoAjuste, setSentidoAjuste] = useState<GeneralStockAdjustmentDirection>("entrada");
   const [cantidadAjuste, setCantidadAjuste] = useState("1");
   const [motivoAjuste, setMotivoAjuste] = useState(() =>
-    role === "gerente" ? DEFAULT_STOCK_ENTRY_REASON : "",
+    role === "gerente" ? DEFAULT_STOCK_ADJUSTMENT_REASON.entrada : "",
   );
   const [adjustmentNotes, setAdjustmentNotes] = useState<Record<string, string>>({});
   const [resolvingAdjustmentId, setResolvingAdjustmentId] = useState<string | null>(null);
@@ -349,12 +354,21 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
   const canManageInventory = role === "administrador" || role === "gerente";
   const canApproveAdjustments = role === "gerente";
   const isManager = role === "gerente";
-  const adjustmentFormTitle = "Ingreso de productos al stock general";
+  const isStockEntry = sentidoAjuste === "entrada";
+  const adjustmentFormTitle = isStockEntry ? "Entrada al stock general" : "Salida del stock general";
   const adjustmentFormDetail = isManager
-    ? "Registra directamente las unidades recibidas con trazabilidad"
-    : "La solicitud de ingreso queda pendiente de aprobacion gerencial";
-  const adjustmentSubmitLabel = isManager ? "Ingresar al stock general" : "Solicitar ingreso";
-  const adjustmentSubmittingLabel = isManager ? "Ingresando" : "Solicitando";
+    ? isStockEntry
+      ? "Registra directamente las unidades recibidas con trazabilidad"
+      : "Retira directamente unidades disponibles con trazabilidad"
+    : `La solicitud de ${sentidoAjuste} queda pendiente de aprobacion gerencial`;
+  const adjustmentSubmitLabel = isManager
+    ? isStockEntry
+      ? "Registrar entrada"
+      : "Registrar salida"
+    : isStockEntry
+      ? "Solicitar entrada"
+      : "Solicitar salida";
+  const adjustmentSubmittingLabel = isManager ? "Registrando" : "Solicitando";
   const managementValue = isManager ? "Control" : canManageInventory ? "Solicitudes" : "Solo lectura";
   const openCashBoxId = snapshot.existenciasDiarias[0]?.idCajaDiaria ?? "";
   const hasOpenCashBox = Boolean(openCashBoxId);
@@ -376,10 +390,10 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
     },
     ajuste: {
       eyebrow: "Inventario general",
-      title: "Ingreso de productos al stock general",
+      title: "Ajustar stock general",
       lead: isManager
-        ? "Selecciona un producto y registra las unidades que ingresan al inventario."
-        : "Selecciona un producto y solicita el ingreso de unidades al inventario.",
+        ? "Registra entradas o salidas de productos directamente en el inventario."
+        : "Solicita entradas o salidas de productos para aprobacion gerencial.",
     },
     movimientos: {
       eyebrow: "Trazabilidad de inventario",
@@ -593,12 +607,12 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
         cantidadAjuste: cantidad,
         idItemInventario: idItemAjuste,
         motivoAjuste: motivoAjuste.trim(),
-        sentidoAjuste: "entrada",
+        sentidoAjuste,
         tipoStock: "general",
       });
       setLastAction({ response, type: "ajuste" });
       setCantidadAjuste("1");
-      setMotivoAjuste(isManager ? DEFAULT_STOCK_ENTRY_REASON : "");
+      setMotivoAjuste(isManager ? DEFAULT_STOCK_ADJUSTMENT_REASON[sentidoAjuste] : "");
       await loadInventory();
     } catch (error) {
       setSubmitMessage(messageFor(error));
@@ -680,8 +694,10 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
                 ? `Consumo registrado: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadConsumida} unidades.`
               : lastAction.type === "ajuste"
                 ? lastAction.response.estadoAprobacion === "aprobado"
-                    ? `Ingreso registrado: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadAjuste} unidades agregadas al stock general.`
-                    : `Solicitud de ingreso registrada: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadAjuste} unidades pendientes de aprobacion.`
+                    ? lastAction.response.sentidoAjuste === "entrada"
+                      ? `Entrada registrada: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadAjuste} unidades agregadas al stock general.`
+                      : `Salida registrada: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadAjuste} unidades retiradas del stock general.`
+                    : `Solicitud de ${lastAction.response.sentidoAjuste} registrada: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadAjuste} unidades pendientes de aprobacion.`
                   : lastAction.type === "ajuste-aprobado"
                     ? `Ajuste aprobado: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadAjuste} unidades.`
                     : `Ajuste rechazado: ${formatDisplayName(lastAction.response.nombreItem)}.`}
@@ -725,7 +741,7 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
             aria-selected={view === "ajuste"}
             onClick={() => setView("ajuste")}
           >
-            Ingreso al stock general
+            Ajustar stock general
           </button>
           <button
             className={view === "movimientos" ? "active" : ""}
@@ -961,7 +977,7 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
               items={generalItems}
               selectedId={idItemAjuste}
               onSelect={setIdItemAjuste}
-              ariaLabel="Productos disponibles para ingreso al stock general"
+              ariaLabel={`Productos disponibles para ${sentidoAjuste} en el stock general`}
               emptyMessage="No hay productos de inventario general disponibles."
             />
 
@@ -970,9 +986,27 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
                 item={selectedAdjustmentItem}
                 emptyMessage="Selecciona un item de la lista."
               />
-              <div className="inventory-form-row single-field">
+              <div className="inventory-form-row">
                 <label className="field-label">
-                  Cantidad recibida
+                  Tipo de movimiento
+                  <div className="field-control plain">
+                    <select
+                      value={sentidoAjuste}
+                      onChange={(event) => {
+                        const nextDirection = event.target.value as GeneralStockAdjustmentDirection;
+                        setSentidoAjuste(nextDirection);
+                        setMotivoAjuste(
+                          isManager ? DEFAULT_STOCK_ADJUSTMENT_REASON[nextDirection] : "",
+                        );
+                      }}
+                    >
+                      <option value="entrada">Entrada</option>
+                      <option value="salida">Salida</option>
+                    </select>
+                  </div>
+                </label>
+                <label className="field-label">
+                  {isStockEntry ? "Cantidad recibida" : "Cantidad retirada"}
                   <div className="field-control plain">
                     <input
                       min="1"
@@ -992,7 +1026,11 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
                     type="text"
                     value={motivoAjuste}
                     onChange={(event) => setMotivoAjuste(event.target.value)}
-                    placeholder="Compra, reabastecimiento o recepcion"
+                    placeholder={
+                      isStockEntry
+                        ? "Compra, reabastecimiento o recepcion"
+                        : "Merma, devolucion, daño o retiro"
+                    }
                     maxLength={1000}
                   />
                 </div>

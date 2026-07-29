@@ -92,7 +92,7 @@ function ItemRow({ item }: { item: ItemInventario }) {
   return (
     <li className="catalog-row stacked">
       <span>
-        <strong>{formatDisplayName(item.nombreItem)}</strong>
+        <strong>{item.nombreItem}</strong>
         <small>
           {formatDisplayName(item.nombreCategoria)} · {formatDisplayName(item.nombreUnidad)}
           {item.onzas ? ` · ${item.onzas} oz` : ""}

@@ -16,8 +16,8 @@ import { anularVenta, consultarVentaParaAnulacion, listarTrabajadoresVenta, regi
 import type { RegistrarPagoVentaRequest, TipoComprador, TrabajadorVenta, VentaResponse } from "../types";
 import {
   formatHoraVenta,
+  resumenCantidadVasos,
   resumenMetodosPago,
-  resumenPaquetesVasos,
   resumenTiposVenta,
   resumenTiposVaso,
 } from "../utils/ventaDisplay";
@@ -201,6 +201,15 @@ function calculateLines(
   }
 
   return calculated;
+}
+
+function nombreVaso(
+  catalogos: CatalogosFormulario | null,
+  idTamanoVaso: string,
+  onzas: number,
+) {
+  return catalogos?.tamanosVaso.find((item) => item.idTamanoVaso === idTamanoVaso)?.nombreItem
+    ?? `${onzas} oz`;
 }
 
 export function VentasPanel({ role, token }: VentasPanelProps) {
@@ -886,7 +895,7 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
                 <select value={idTamanoVaso} onChange={(event) => setIdTamanoVaso(event.target.value)}>
                   {catalogos?.tamanosVaso.map((tamano) => (
                     <option key={tamano.idTamanoVaso} value={tamano.idTamanoVaso}>
-                      {tamano.onzas} oz
+                      {tamano.nombreItem ?? `${tamano.onzas} oz`}
                     </option>
                   ))}
                 </select>
@@ -917,7 +926,7 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
               <li className="venta-line" key={line.id}>
                 <div>
                   <strong>
-                    {formatDisplayName(line.nombreTipo)} · {line.onzas} oz
+                    {formatDisplayName(line.nombreTipo)} · {nombreVaso(catalogos, line.idTamanoVaso, line.onzas)}
                   </strong>
                   <small>
                     {line.promocion?.nombrePromocion ?? "precio normal"} · {formatCurrency(line.total)}
@@ -1148,7 +1157,7 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
             </div>
             <div>
               <span>Vasos vendidos</span>
-              <strong>{resumenPaquetesVasos(lastSale.detalles)}</strong>
+              <strong>{resumenCantidadVasos(lastSale.detalles)}</strong>
             </div>
             <div>
               <span>Metodo de pago</span>
@@ -1281,7 +1290,7 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
                         }}
                         type="button"
                       >
-                        <span className="inventory-item-number">{index + 1}</span>
+                        <span className="inventory-item-number">{ventasJornada.length - index}</span>
                         <span className="inventory-item-identity">
                           <strong>Venta #{venta.numeroVenta}</strong>
                           <small>{formatHoraVenta(venta.fechaVenta)} · {venta.nombreUsuarioVendedor}</small>
@@ -1354,7 +1363,7 @@ export function VentasPanel({ role, token }: VentasPanelProps) {
                       </div>
                       <div>
                         <span>Vasos vendidos</span>
-                        <strong>{resumenPaquetesVasos(detalleAnulacionSeleccionado.detalles)}</strong>
+                        <strong>{resumenCantidadVasos(detalleAnulacionSeleccionado.detalles)}</strong>
                       </div>
                       <div>
                         <span>Método de pago</span>

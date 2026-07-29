@@ -25,6 +25,7 @@ export type DetalleCortesia = {
   idTipoGranizado: string;
   nombreTipoGranizado: string;
   idTamanoVaso: string;
+  nombreItemVaso?: string;
   onzas: number;
   cantidad: number;
 };

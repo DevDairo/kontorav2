@@ -8,6 +8,7 @@ export type TamanoVaso = {
   idTamanoVaso: string;
   onzas: number;
   estado: string;
+  nombreItem?: string;
 };
 
 export type UnidadMedida = {

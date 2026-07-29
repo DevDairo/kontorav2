@@ -23,11 +23,21 @@ Registrar ventas de granizados, aplicar precios y promociones vigentes, distribu
   operaciones financieras con acciones sin cobro o destructivas.
 - Registro de cortesías para trabajador u otro beneficiario, sin precio, pago,
   promoción ni total financiero.
-- El comprobante de la venta registrada se muestra inmediatamente despues del formulario e incluye hora, tipo con o sin licor, tamanos de vaso, equivalencia de vasos en paquetes de 20 y metodo de pago.
+- El selector de tamaño y las líneas de la venta muestran el nombre vigente del
+  vaso registrado en Catálogos.
+- Solo se ofrecen tamaños que tienen un item automático activo asociado. Ocultar
+  los vasos de la administración visual de Catálogos no los elimina ni altera
+  esta asociación operativa.
+- El comprobante de la venta registrada se muestra inmediatamente después del
+  formulario e incluye hora, tipo con o sin licor, tamaño de vaso, cantidad
+  total de vasos y método de pago. `Tipo de vaso` muestra solo el tamaño y
+  `Vasos vendidos` muestra solo la cantidad.
 - Al completar el registro, la pantalla desplaza suavemente el comprobante nuevo al area visible para que el usuario confirme los datos de la operacion.
 - Panel independiente de anulacion para seleccionar una venta registrada de la
   jornada y consultar vendedor, comprador, subtotal, descuento, total, hora,
   productos, tamaños, cantidades y estados de pago antes de confirmar.
+- La columna `N.º` del selector de anulación se presenta en orden descendente,
+  coherente con las ventas más recientes mostradas primero.
 - Anulacion autorizada de venta abierta, con motivo, trazabilidad y restauracion del stock diario de vasos, sin depender de si el pago fue en efectivo, transferencia o mixto.
 
 ## Permisos
@@ -71,6 +81,9 @@ Registrar ventas de granizados, aplicar precios y promociones vigentes, distribu
 - Solo se anulan ventas en estado `registrada` de una caja abierta; el registro permanece como `anulada` para consulta y auditoria. Sus pagos y evidencias no se eliminan, pues conservan la trazabilidad de la operacion.
 - Una venta anulada deja de aportar al total vendido, al efectivo, a las transferencias y a los valores calculados para el cierre de caja.
 - El panel de anulacion consulta la fecha operativa de la caja abierta. Por ello sigue mostrando las ventas de la jornada aunque esta termine despues de medianoche.
+- El detalle de anulación usa la misma separación del comprobante: tamaño en
+  `Tipo de vaso` y cantidad total en `Vasos vendidos`, sin duplicar ambas
+  magnitudes en cada campo.
 - Las transferencias se crean como pendientes hasta su decision posterior.
 - El beneficio de trabajador esta disponible para usuarios activos, incluidos administrador y gerente, bajo la regla vigente de promociones.
 

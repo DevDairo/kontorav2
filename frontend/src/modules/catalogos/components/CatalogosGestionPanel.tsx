@@ -24,6 +24,11 @@ import type {
 
 type LoadState = "loading" | "success" | "error";
 type ItemMode = "create" | "edit";
+type InventoryCategoryOption = {
+  idCategoriaInventario: string;
+  nombreCategoria: string;
+  itemCount: number;
+};
 
 type CatalogosGestionPanelProps = {
   catalogos: CatalogosFormulario | null;
@@ -43,6 +48,14 @@ type PriceForm = {
   idTipoGranizado: string;
   valorPrecio: string;
 };
+
+const INVENTORY_CATEGORY_ORDER = [
+  "vasos",
+  "desechables",
+  "dulces",
+  "producto_con_licor",
+  "producto_sin_licor",
+];
 
 function todayLocalDate() {
   const date = new Date();
@@ -95,6 +108,27 @@ function statusLabel(estado: string) {
   return estado === "activo" ? "Activo" : "Inactivo";
 }
 
+function inventoryCategoryOptions(categorias: CatalogoBasico[], items: ItemInventario[]) {
+  return categorias
+    .map<InventoryCategoryOption>((categoria) => ({
+      idCategoriaInventario: categoria.id,
+      nombreCategoria: categoria.nombre,
+      itemCount: items.filter((item) => item.idCategoriaInventario === categoria.id).length,
+    }))
+    .sort((left, right) => {
+      const leftOrder = INVENTORY_CATEGORY_ORDER.indexOf(left.nombreCategoria);
+      const rightOrder = INVENTORY_CATEGORY_ORDER.indexOf(right.nombreCategoria);
+      const normalizedLeftOrder = leftOrder === -1 ? Number.MAX_SAFE_INTEGER : leftOrder;
+      const normalizedRightOrder = rightOrder === -1 ? Number.MAX_SAFE_INTEGER : rightOrder;
+
+      if (normalizedLeftOrder !== normalizedRightOrder) {
+        return normalizedLeftOrder - normalizedRightOrder;
+      }
+
+      return left.nombreCategoria.localeCompare(right.nombreCategoria, "es");
+    });
+}
+
 export function CatalogosGestionPanel({ catalogos, onCatalogosChanged, token }: CatalogosGestionPanelProps) {
   const categorias = catalogos?.categoriasInventario ?? [];
   const unidades = catalogos?.unidadesMedida ?? [];
@@ -114,6 +148,7 @@ export function CatalogosGestionPanel({ catalogos, onCatalogosChanged, token }: 
   const [itemForm, setItemForm] = useState<ItemForm>(() => emptyItemForm(categorias, unidades));
   const [priceForm, setPriceForm] = useState<PriceForm>(() => emptyPriceForm(tiposGranizado, tamanos));
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [selectedItemCategoryId, setSelectedItemCategoryId] = useState("");
   const [itemQuery, setItemQuery] = useState("");
   const [priceQuery, setPriceQuery] = useState("");
   const [isSavingItem, setIsSavingItem] = useState(false);
@@ -158,16 +193,42 @@ export function CatalogosGestionPanel({ catalogos, onCatalogosChanged, token }: 
     () => items.find((item) => item.idItemInventario === selectedItemId) ?? null,
     [items, selectedItemId],
   );
+  const selectedItemIsAutomatic = selectedItem?.tipoControl === "automatico_por_venta";
+  const itemCategories = useMemo(
+    () => inventoryCategoryOptions(categoriasConsumibles, items),
+    [categoriasConsumibles, items],
+  );
+
+  useEffect(() => {
+    setSelectedItemCategoryId((current) =>
+      itemCategories.some((category) => category.idCategoriaInventario === current)
+        ? current
+        : (itemCategories[0]?.idCategoriaInventario ?? ""),
+    );
+  }, [itemCategories]);
+
+  useEffect(() => {
+    if (
+      selectedItem
+      && !itemCategories.some(
+        (category) => category.idCategoriaInventario === selectedItem.idCategoriaInventario,
+      )
+    ) {
+      iniciarCreacionItem();
+    }
+  }, [itemCategories, selectedItem]);
 
   const filteredItems = useMemo(() => {
     const query = itemQuery.trim().toLowerCase();
-    const itemsManual = items.filter((item) => item.tipoControl === "manual_por_consumo" && item.nombreCategoria !== "vasos");
+    const categoryItems = items.filter(
+      (item) => item.idCategoriaInventario === selectedItemCategoryId,
+    );
     if (!query) {
-      return itemsManual;
+      return categoryItems;
     }
-    return itemsManual.filter((item) => [item.nombreItem, item.nombreCategoria, item.nombreUnidad, item.estado]
+    return categoryItems.filter((item) => [item.nombreItem, item.nombreCategoria, item.nombreUnidad, item.estado]
       .some((value) => value.toLowerCase().includes(query)));
-  }, [itemQuery, items]);
+  }, [itemQuery, items, selectedItemCategoryId]);
 
   const filteredPrices = useMemo(() => {
     const query = priceQuery.trim().toLowerCase();
@@ -182,6 +243,26 @@ export function CatalogosGestionPanel({ catalogos, onCatalogosChanged, token }: 
     setItemMode("create");
     setItemForm(emptyItemForm(categoriasConsumibles, unidades));
     setItemMessage(null);
+  }
+
+  function seleccionarCategoriaItem(idCategoriaInventario: string) {
+    setSelectedItemCategoryId(idCategoriaInventario);
+    setItemQuery("");
+
+    if (selectedItem?.idCategoriaInventario !== idCategoriaInventario) {
+      const initialForm = emptyItemForm(categoriasConsumibles, unidades);
+      setSelectedItemId(null);
+      setItemMode("create");
+      setItemForm({
+        ...initialForm,
+        idCategoriaInventario: categoriasConsumibles.some(
+          (categoria) => categoria.id === idCategoriaInventario,
+        )
+          ? idCategoriaInventario
+          : initialForm.idCategoriaInventario,
+      });
+      setItemMessage(null);
+    }
   }
 
   function seleccionarItem(item: ItemInventario) {
@@ -200,6 +281,17 @@ export function CatalogosGestionPanel({ catalogos, onCatalogosChanged, token }: 
     if (!nombreItem || !itemForm.idCategoriaInventario || !itemForm.idUnidadMedida) {
       setItemMessage("Completa los datos obligatorios del item.");
       return null;
+    }
+    if (itemMode === "edit" && selectedItemIsAutomatic && selectedItem) {
+      return {
+        idCategoriaInventario: selectedItem.idCategoriaInventario,
+        idTamanoVaso: selectedItem.idTamanoVaso ?? undefined,
+        idUnidadMedida: selectedItem.idUnidadMedida,
+        manejaPaquetes: selectedItem.manejaPaquetes,
+        nombreItem,
+        tipoControl: "automatico_por_venta",
+        unidadesPorPaquete: selectedItem.unidadesPorPaquete ?? undefined,
+      };
     }
     return {
       idCategoriaInventario: itemForm.idCategoriaInventario,
@@ -225,6 +317,7 @@ export function CatalogosGestionPanel({ catalogos, onCatalogosChanged, token }: 
       await loadGestion();
       onCatalogosChanged();
       setSelectedItemId(response.idItemInventario);
+      setSelectedItemCategoryId(response.idCategoriaInventario);
       setItemMode("edit");
       setItemForm({
         idCategoriaInventario: response.idCategoriaInventario,
@@ -312,7 +405,13 @@ export function CatalogosGestionPanel({ catalogos, onCatalogosChanged, token }: 
           <div className="panel-title">
             <div>
               <h2 id="catalog-item-form-title">{itemMode === "create" ? "Nuevo item inventariable" : "Editar item inventariable"}</h2>
-              <p>{itemMode === "create" ? "Alta en inventario general" : "Nombre, categoria, unidad y estado operativo"}</p>
+              <p>
+                {itemMode === "create"
+                  ? "Alta en inventario general"
+                  : selectedItemIsAutomatic
+                    ? "Nombre y estado; la configuracion automatica del vaso esta protegida"
+                    : "Nombre, categoria, unidad y estado operativo"}
+              </p>
             </div>
             {itemMode === "create" ? <ClipboardPlus size={21} aria-hidden="true" /> : <Pencil size={21} aria-hidden="true" />}
           </div>
@@ -328,9 +427,9 @@ export function CatalogosGestionPanel({ catalogos, onCatalogosChanged, token }: 
             <label className="field-label">
               Categoria
               <div className="field-control plain">
-                <select value={itemForm.idCategoriaInventario} onChange={(event) => setItemForm((current) => ({ ...current, idCategoriaInventario: event.target.value }))} required>
+                <select value={itemForm.idCategoriaInventario} onChange={(event) => setItemForm((current) => ({ ...current, idCategoriaInventario: event.target.value }))} required disabled={selectedItemIsAutomatic}>
                   <option value="" disabled>Selecciona categoria</option>
-                  {categoriasConsumibles.map((categoria) => <option key={categoria.id} value={categoria.id}>{formatDisplayName(categoria.nombre)}</option>)}
+                  {(selectedItemIsAutomatic ? categorias : categoriasConsumibles).map((categoria) => <option key={categoria.id} value={categoria.id}>{formatDisplayName(categoria.nombre)}</option>)}
                 </select>
               </div>
             </label>
@@ -338,7 +437,7 @@ export function CatalogosGestionPanel({ catalogos, onCatalogosChanged, token }: 
             <label className="field-label">
               Unidad de medida
               <div className="field-control plain">
-                <select value={itemForm.idUnidadMedida} onChange={(event) => setItemForm((current) => ({ ...current, idUnidadMedida: event.target.value }))} required>
+                <select value={itemForm.idUnidadMedida} onChange={(event) => setItemForm((current) => ({ ...current, idUnidadMedida: event.target.value }))} required disabled={selectedItemIsAutomatic}>
                   <option value="" disabled>Selecciona unidad</option>
                   {unidades.map((unidad) => <option key={unidad.idUnidadMedida} value={unidad.idUnidadMedida}>{unidad.nombreUnidad} ({unidad.abreviatura})</option>)}
                 </select>
@@ -381,6 +480,28 @@ export function CatalogosGestionPanel({ catalogos, onCatalogosChanged, token }: 
               <p>Incluye activos e inactivos para conservar trazabilidad.</p>
             </div>
             <span className="badge">{loadState === "loading" ? "..." : filteredItems.length}</span>
+          </div>
+
+          <div className="inventory-category-filter catalog-management-category-filter">
+            <span>Categoria</span>
+            <div className="inventory-category-tabs" role="group" aria-label="Categorias de items inventariables">
+              {itemCategories.map((category) => {
+                const isSelected = category.idCategoriaInventario === selectedItemCategoryId;
+
+                return (
+                  <button
+                    key={category.idCategoriaInventario}
+                    className={isSelected ? "active" : ""}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => seleccionarCategoriaItem(category.idCategoriaInventario)}
+                  >
+                    <span>{formatDisplayName(category.nombreCategoria)}</span>
+                    <b>{category.itemCount}</b>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <label className="field-control catalog-management-search">

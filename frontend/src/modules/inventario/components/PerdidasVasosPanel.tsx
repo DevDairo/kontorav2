@@ -10,7 +10,7 @@ import {
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmationDialog } from "../../../shared/components/ConfirmationDialog";
 import { ApiClientError } from "../../../shared/services/apiClient";
-import { formatDisplayName } from "../../../shared/utils/displayText";
+import { obtenerItemsInventarioGestion } from "../../catalogos/services/catalogosService";
 import { EvidenceGallery } from "../../evidencias/components/EvidenceGallery";
 import { cargarEvidenciaPerdidaInventario } from "../../evidencias/services/evidenciasService";
 import {
@@ -123,8 +123,18 @@ export function PerdidasVasosPanel({
       const openPromise = openCashBoxId
         ? obtenerPerdidasCajaAbierta(token)
         : Promise.resolve([] as PerdidaInventario[]);
-      const [history, open] = await Promise.all([historyPromise, openPromise]);
-      const mergedRecords = mergeLosses(history, open);
+      const [history, open, itemsCatalogo] = await Promise.all([
+        historyPromise,
+        openPromise,
+        obtenerItemsInventarioGestion(token),
+      ]);
+      const nombresPorItem = new Map(
+        itemsCatalogo.map((item) => [item.idItemInventario, item.nombreItem]),
+      );
+      const mergedRecords = mergeLosses(history, open).map((record) => ({
+        ...record,
+        nombreItem: nombresPorItem.get(record.idItemInventario) ?? record.nombreItem,
+      }));
       setRecords(mergedRecords);
       setSelectedRecordId((current) =>
         mergedRecords.some((item) => item.idPerdidaInventario === current)
@@ -226,7 +236,7 @@ export function PerdidasVasosPanel({
     try {
       await cargarEvidenciaPerdidaInventario(token, perdida.idPerdidaInventario, file);
       setEvidenceFiles((current) => ({ ...current, [perdida.idPerdidaInventario]: null }));
-      setMessage(`Evidencia adjunta a la perdida de vasos de ${perdida.onzas} oz.`);
+      setMessage(`Evidencia adjunta a la perdida de ${perdida.nombreItem}.`);
       await loadRecords();
     } catch (error) {
       setErrorMessage(messageFor(error));
@@ -321,7 +331,7 @@ export function PerdidasVasosPanel({
                 >
                   <span className="inventory-item-number">{index + 1}</span>
                   <span className="inventory-item-identity">
-                    <strong>{formatDisplayName(item.nombreItem)} · {item.onzas} oz</strong>
+                    <strong>{item.nombreItem}</strong>
                     <small>Stock diario</small>
                   </span>
                   <b>{item.cantidadFinalTeorica}</b>
@@ -339,7 +349,7 @@ export function PerdidasVasosPanel({
             <span>Vaso seleccionado</span>
             <strong>
               {selectedItem
-                ? `${formatDisplayName(selectedItem.nombreItem)} · ${selectedItem.onzas} oz`
+                ? selectedItem.nombreItem
                 : "Sin seleccionar"}
             </strong>
             <small>
@@ -462,7 +472,7 @@ export function PerdidasVasosPanel({
                 >
                   <span className="loss-record-identity">
                     <strong>
-                      {perdida.onzas} oz · {perdida.cantidad} {perdida.cantidad === 1 ? "vaso" : "vasos"}
+                      {perdida.nombreItem} · {perdida.cantidad} {perdida.cantidad === 1 ? "vaso" : "vasos"}
                     </strong>
                     <small>{formatDateTime(perdida.fechaRegistro)} · {perdida.nombreUsuarioRegistro}</small>
                   </span>
@@ -491,7 +501,7 @@ export function PerdidasVasosPanel({
             <>
               <div className="operation-record-main">
                 <span>
-                  <strong>{formatDisplayName(selectedRecord.nombreItem)} · {selectedRecord.onzas} oz</strong>
+                  <strong>{selectedRecord.nombreItem}</strong>
                   <small>
                     {selectedRecord.cantidad} {selectedRecord.cantidad === 1 ? "vaso descontado" : "vasos descontados"}
                     {" · "}
@@ -596,7 +606,7 @@ export function PerdidasVasosPanel({
         confirmLabel="Registrar perdida"
         description={
           selectedItem
-            ? `Se descontaran ${parsedQuantity || 0} vasos de ${selectedItem.onzas} oz del stock diario. La evidencia podra adjuntarse posteriormente y el cierre no volvera a descontar inventario.`
+            ? `Se descontaran ${parsedQuantity || 0} vasos de ${selectedItem.nombreItem} del stock diario. La evidencia podra adjuntarse posteriormente y el cierre no volvera a descontar inventario.`
             : ""
         }
         isConfirming={isSubmitting}

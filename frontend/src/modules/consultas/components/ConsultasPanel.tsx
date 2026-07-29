@@ -17,9 +17,10 @@ import {
   listarEvidenciasPerdidaInventario,
 } from "../../evidencias/services/evidenciasService";
 import type { ArchivoEvidenciaResponse } from "../../evidencias/types";
+import { obtenerItemsInventarioGestion } from "../../catalogos/services/catalogosService";
 import { obtenerPerdidasPeriodo } from "../../inventario/services/inventarioService";
 import type { PerdidaInventario } from "../../inventario/types";
-import { formatHoraVenta, resumenPaquetesVasos, resumenTiposVenta, resumenTiposVaso } from "../../ventas/utils/ventaDisplay";
+import { formatHoraVenta, resumenCantidadVasos, resumenTiposVenta, resumenTiposVaso } from "../../ventas/utils/ventaDisplay";
 import {
   consultarCierrePorFecha,
   consultarGastos,
@@ -203,21 +204,49 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
       } else if (vista === "gastos") {
         setGastos(await consultarGastos(token, filtroAplicado));
       } else if (vista === "inventario") {
-        const [inventarioResponse, movimientosResponse, ventasVasosResponse] = await Promise.all([
+        const [inventarioResponse, movimientosResponse, ventasVasosResponse, itemsCatalogo] = await Promise.all([
           consultarInventarioActual(token),
           consultarMovimientosInventario(token, filtroAplicado),
           consultarVentasVasos(token, filtroAplicado),
+          obtenerItemsInventarioGestion(token),
         ]);
-        setInventario(inventarioResponse);
-        setMovimientosInventario(movimientosResponse);
+        const nombresPorItem = new Map(
+          itemsCatalogo.map((item) => [item.idItemInventario, item.nombreItem]),
+        );
+        setInventario(inventarioResponse.map((item) => ({
+          ...item,
+          nombreItem: nombresPorItem.get(item.idItemInventario) ?? item.nombreItem,
+        })));
+        setMovimientosInventario(movimientosResponse.map((movimiento) => ({
+          ...movimiento,
+          nombreItem: nombresPorItem.get(movimiento.idItemInventario) ?? movimiento.nombreItem,
+        })));
         setVentasVasos(ventasVasosResponse);
       } else if (vista === "novedades") {
-        const [cortesiasResponse, perdidasResponse] = await Promise.all([
+        const [cortesiasResponse, perdidasResponse, itemsCatalogo] = await Promise.all([
           obtenerCortesiasPeriodo(token, filtroAplicado),
           obtenerPerdidasPeriodo(token, filtroAplicado),
+          obtenerItemsInventarioGestion(token),
         ]);
-        setCortesias(cortesiasResponse);
-        setPerdidas(perdidasResponse);
+        const nombresPorItem = new Map(
+          itemsCatalogo.map((item) => [item.idItemInventario, item.nombreItem]),
+        );
+        const nombresVasosPorTamano = new Map(
+          itemsCatalogo
+            .filter((item) => item.idTamanoVaso !== null)
+            .map((item) => [item.idTamanoVaso as string, item.nombreItem]),
+        );
+        setCortesias(cortesiasResponse.map((cortesia) => ({
+          ...cortesia,
+          detalles: cortesia.detalles.map((detalle) => ({
+            ...detalle,
+            nombreItemVaso: nombresVasosPorTamano.get(detalle.idTamanoVaso),
+          })),
+        })));
+        setPerdidas(perdidasResponse.map((perdida) => ({
+          ...perdida,
+          nombreItem: nombresPorItem.get(perdida.idItemInventario) ?? perdida.nombreItem,
+        })));
       } else if (vista === "cierre") {
         try {
           setCierre(await consultarCierrePorFecha(token, filtroAplicado.fechaFin ?? filtroAplicado.fechaInicio));
@@ -398,7 +427,7 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
     void abrirEvidencias({
       canUpload: perdida.estado === "registrada",
       id: perdida.idPerdidaInventario,
-      label: `Perdida de vasos de ${perdida.onzas} oz`,
+      label: `Perdida de ${perdida.nombreItem}`,
       source: "perdida",
       subtitle: `${perdida.nombreUsuarioRegistro} · ${formatDateTime(perdida.fechaRegistro)}`,
     });
@@ -575,7 +604,7 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
                   <small>Hora: {formatHoraVenta(venta.fechaVenta)}</small>
                   <small>Tipo de venta: {resumenTiposVenta(venta.detalles)}</small>
                   <small>Tipo de vaso: {resumenTiposVaso(venta.detalles)}</small>
-                  <small>Vasos vendidos: {resumenPaquetesVasos(venta.detalles)}</small>
+                  <small>Vasos vendidos: {resumenCantidadVasos(venta.detalles)}</small>
                 </span>
                 <span>
                   <strong>{formatCurrency(venta.totalVenta)}</strong>
@@ -638,7 +667,7 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
               {inventario.map((item) => (
                 <li className="consultas-record-row inventario" key={item.idItemInventario}>
                   <span>
-                    <strong>{formatDisplayName(item.nombreItem)}</strong>
+                    <strong>{item.nombreItem}</strong>
                     <small>{formatDisplayName(item.nombreCategoria)} · {formatDisplayName(item.nombreUnidad)}{item.onzas ? ` · ${item.onzas} oz` : ""}</small>
                   </span>
                   <span>
@@ -694,7 +723,7 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
               {movimientosInventario.map((movimiento) => (
                 <li className="consultas-record-row movimientos" key={movimiento.idMovimientoInventario}>
                   <span>
-                    <strong>{formatDisplayName(movimiento.nombreItem)}</strong>
+                    <strong>{movimiento.nombreItem}</strong>
                     <small>{movimiento.tipoMovimiento} · {movimiento.nombreUsuarioRegistro}</small>
                   </span>
                   <span>
@@ -736,7 +765,7 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
                     </small>
                     <small>
                       {cortesia.detalles
-                        .map((detail) => `${formatDisplayName(detail.nombreTipoGranizado)} · ${detail.onzas} oz × ${detail.cantidad}`)
+                        .map((detail) => `${formatDisplayName(detail.nombreTipoGranizado)} · ${detail.nombreItemVaso ?? `${detail.onzas} oz`} × ${detail.cantidad}`)
                         .join(" | ")}
                     </small>
                   </span>
@@ -763,7 +792,7 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
               {perdidas.map((perdida) => (
                 <li className="consultas-record-row novedades perdida" key={perdida.idPerdidaInventario}>
                   <span>
-                    <strong>{perdida.onzas} oz · {perdida.cantidad} {perdida.cantidad === 1 ? "vaso" : "vasos"}</strong>
+                    <strong>{perdida.nombreItem} · {perdida.cantidad} {perdida.cantidad === 1 ? "vaso" : "vasos"}</strong>
                     <small>
                       {perdida.nombreUsuarioRegistro} · {formatDateTime(perdida.fechaRegistro)}
                     </small>
@@ -781,7 +810,7 @@ export function ConsultasPanel({ role, token }: ConsultasPanelProps) {
                     {perdida.estado}
                   </span>
                   <button
-                    aria-label={`Ver evidencias de perdida de vasos de ${perdida.onzas} onzas`}
+                    aria-label={`Ver evidencias de perdida de ${perdida.nombreItem}`}
                     className="icon-button"
                     onClick={() => abrirEvidenciasPerdida(perdida)}
                     title="Ver o adjuntar evidencia"

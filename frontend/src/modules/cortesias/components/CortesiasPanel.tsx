@@ -57,6 +57,15 @@ function detailKey(detail: RegistrarDetalleCortesiaRequest) {
   return `${detail.idTipoGranizado}-${detail.idTamanoVaso}`;
 }
 
+function nombreVaso(
+  catalogos: CatalogosFormulario | null,
+  idTamanoVaso: string,
+  onzas?: number,
+) {
+  return catalogos?.tamanosVaso.find((item) => item.idTamanoVaso === idTamanoVaso)?.nombreItem
+    ?? (onzas ? `${onzas} oz` : "Vaso");
+}
+
 export function CortesiasPanel({
   catalogos,
   disabled = false,
@@ -308,7 +317,7 @@ export function CortesiasPanel({
             <span>Seleccion actual</span>
             <strong>
               {selectedType ? formatDisplayName(selectedType.nombre) : "Sin tipo"}
-              {selectedSize ? ` · ${selectedSize.onzas} oz` : ""}
+              {selectedSize ? ` · ${nombreVaso(catalogos, selectedSize.idTamanoVaso, selectedSize.onzas)}` : ""}
             </strong>
             <small>La disponibilidad final siempre la valida el sistema.</small>
           </div>
@@ -391,7 +400,7 @@ export function CortesiasPanel({
                   type="button"
                   onClick={() => setIdTamanoVaso(item.idTamanoVaso)}
                 >
-                  <strong>{item.onzas} oz</strong>
+                  <strong>{item.nombreItem ?? `${item.onzas} oz`}</strong>
                 </button>
               ))}
             </div>
@@ -425,7 +434,7 @@ export function CortesiasPanel({
                   <li key={detailKey(detail)}>
                     <span>
                       <strong>{type ? formatDisplayName(type.nombre) : "Granizado"}</strong>
-                      <small>{size?.onzas ?? "-"} oz</small>
+                      <small>{nombreVaso(catalogos, detail.idTamanoVaso, size?.onzas)}</small>
                     </span>
                     <div className="quantity-stepper">
                       <button type="button" onClick={() => adjustDetail(detailKey(detail), -1)}>
@@ -498,7 +507,7 @@ export function CortesiasPanel({
             </div>
             <p>
               {cortesia.detalles
-                .map((detail) => `${formatDisplayName(detail.nombreTipoGranizado)} · ${detail.onzas} oz × ${detail.cantidad}`)
+                .map((detail) => `${formatDisplayName(detail.nombreTipoGranizado)} · ${nombreVaso(catalogos, detail.idTamanoVaso, detail.onzas)} × ${detail.cantidad}`)
                 .join(" | ")}
             </p>
             {cortesia.estado === "registrada" ? (

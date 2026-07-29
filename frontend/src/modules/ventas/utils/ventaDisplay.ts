@@ -10,8 +10,6 @@ type PagoVentaDisplay = {
   nombreMetodo: string;
 };
 
-const VASOS_POR_PAQUETE = 20;
-
 export function formatHoraVenta(fechaVenta: string) {
   return new Intl.DateTimeFormat("es-CO", {
     hour: "numeric",
@@ -25,40 +23,15 @@ export function resumenTiposVenta(detalles: DetalleVentaDisplay[] | null | undef
 }
 
 export function resumenTiposVaso(detalles: DetalleVentaDisplay[] | null | undefined) {
-  const cantidadesPorTamano = new Map<number, number>();
-  (detalles ?? []).forEach((detalle) => {
-    cantidadesPorTamano.set(detalle.onzas, (cantidadesPorTamano.get(detalle.onzas) ?? 0) + detalle.cantidad);
-  });
-
-  const vasos = Array.from(cantidadesPorTamano.entries())
-    .sort(([onzasA], [onzasB]) => onzasA - onzasB)
-    .map(([onzas, cantidad]) => `${onzas} oz (${cantidad} ${cantidad === 1 ? "vaso" : "vasos"})`);
-  return vasos.length > 0 ? vasos.join(", ") : "Sin detalle";
+  const tamanos = Array.from(new Set((detalles ?? []).map((detalle) => detalle.onzas)))
+    .sort((onzasA, onzasB) => onzasA - onzasB)
+    .map((onzas) => `${onzas} oz`);
+  return tamanos.length > 0 ? tamanos.join(", ") : "Sin detalle";
 }
 
-export function resumenPaquetesVasos(detalles: DetalleVentaDisplay[] | null | undefined) {
-  const cantidadesPorTamano = new Map<number, number>();
-  (detalles ?? []).forEach((detalle) => {
-    cantidadesPorTamano.set(detalle.onzas, (cantidadesPorTamano.get(detalle.onzas) ?? 0) + detalle.cantidad);
-  });
-
-  const equivalencias = Array.from(cantidadesPorTamano.entries())
-    .sort(([onzasA], [onzasB]) => onzasA - onzasB)
-    .map(([onzas, cantidad]) => {
-      const paquetes = Math.floor(cantidad / VASOS_POR_PAQUETE);
-      const vasosRestantes = cantidad % VASOS_POR_PAQUETE;
-      const partes: string[] = [];
-
-      if (paquetes > 0) {
-        partes.push(`${paquetes} ${paquetes === 1 ? "paquete" : "paquetes"}`);
-      }
-      if (vasosRestantes > 0 || paquetes === 0) {
-        partes.push(`${vasosRestantes} ${vasosRestantes === 1 ? "vaso" : "vasos"}`);
-      }
-
-      return `${onzas} oz: ${partes.join(" + ")}`;
-    });
-  return equivalencias.length > 0 ? equivalencias.join(", ") : "Sin detalle";
+export function resumenCantidadVasos(detalles: DetalleVentaDisplay[] | null | undefined) {
+  const cantidad = (detalles ?? []).reduce((total, detalle) => total + detalle.cantidad, 0);
+  return cantidad > 0 ? `${cantidad} ${cantidad === 1 ? "vaso" : "vasos"}` : "Sin detalle";
 }
 
 export function resumenMetodosPago(pagos: PagoVentaDisplay[] | null | undefined) {

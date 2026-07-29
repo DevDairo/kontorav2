@@ -2,6 +2,8 @@ export type ExistenciaInventarioGeneral = {
   idExistenciaGeneral: string;
   idItemInventario: string;
   nombreItem: string;
+  idCategoriaInventario: string;
+  nombreCategoria: string;
   tipoControl: string;
   idTamanoVaso: string | null;
   onzas: number | null;

@@ -101,6 +101,17 @@ export async function obtenerCatalogosFormulario(token: string, fecha?: string):
     obtenerPromocionesVigentes(token, fecha),
     obtenerTiposServicio(token),
   ]);
+  const nombresVasosPorTamano = new Map(
+    itemsInventario
+      .filter((item) => item.idTamanoVaso)
+      .map((item) => [item.idTamanoVaso, item.nombreItem]),
+  );
+  const tamanosVasoConNombre = tamanosVaso
+    .filter((tamano) => nombresVasosPorTamano.has(tamano.idTamanoVaso))
+    .map((tamano) => ({
+      ...tamano,
+      nombreItem: nombresVasosPorTamano.get(tamano.idTamanoVaso),
+    }));
 
   return {
     categoriasInventario,
@@ -108,7 +119,7 @@ export async function obtenerCatalogosFormulario(token: string, fecha?: string):
     metodosPago,
     preciosVigentes,
     promocionesVigentes,
-    tamanosVaso,
+    tamanosVaso: tamanosVasoConNombre,
     tiposGranizado,
     tiposServicio,
     unidadesMedida,

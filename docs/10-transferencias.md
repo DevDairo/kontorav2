@@ -12,6 +12,8 @@ Consultar transferencias de ventas, revisar sus soportes y decidir las transfere
 ## Funcionalidades
 
 - Consulta por periodo de transferencias pendientes, validadas o rechazadas.
+- Filtro de fechas ubicado antes de los indicadores de pendientes, validadas,
+  rechazadas y soportes, con una acción `Consultar` compacta.
 - Pestanas y totales separados para pendientes, validadas y rechazadas, disponibles tambien durante una caja abierta.
 - Vista previa responsive de imagenes y PDF asociados, con selector para soportes historicos y descarga opcional.
 - Desplazamiento automatico al visor cuando se selecciona un comprobante,

@@ -1431,6 +1431,10 @@ h3 {
   margin-bottom: 14px;
 }
 
+.catalog-management-category-filter {
+  margin-bottom: 14px;
+}
+
 .catalog-management-list {
   flex: 1;
   min-height: 0;
@@ -1959,6 +1963,12 @@ h3 {
   grid-column: 2;
 }
 
+.inventory-action-submit {
+  width: min(100%, 240px);
+  align-self: start;
+  justify-self: end;
+}
+
 .inventory-item-selector {
   display: grid;
   grid-row: 2 / 4;
@@ -1980,6 +1990,93 @@ h3 {
 .inventory-item-selector-heading small {
   color: var(--muted);
   font-weight: 700;
+}
+
+.inventory-category-filter {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.inventory-category-filter > span {
+  color: #273354;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.inventory-category-tabs {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.inventory-category-tabs button {
+  display: inline-flex;
+  min-width: max-content;
+  min-height: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+  scroll-snap-align: start;
+}
+
+.inventory-category-tabs button + button {
+  border-left: 1px solid var(--line);
+}
+
+.inventory-category-tabs button:hover {
+  background: #f6f9fe;
+  color: var(--primary);
+}
+
+.inventory-category-tabs button.active {
+  background: #eef5ff;
+  color: var(--primary);
+}
+
+.inventory-category-tabs button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--primary);
+  outline-offset: -3px;
+}
+
+.inventory-category-tabs b {
+  display: inline-grid;
+  min-width: 22px;
+  min-height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  background: #edf2fa;
+  color: #52627e;
+  padding: 2px 6px;
+  font-size: 0.72rem;
+}
+
+.inventory-category-tabs button.active b {
+  background: #dbe9ff;
+  color: var(--primary);
 }
 
 .inventory-item-table {
@@ -5740,13 +5837,23 @@ h3 {
 
 .transferencias-filter-form.module-filter-bar,
 .consultas-filter-form.module-filter-bar {
-  grid-template-columns: repeat(2, minmax(170px, 0.35fr)) auto;
+  grid-template-columns: repeat(2, minmax(150px, 1fr)) auto;
+}
+
+.transferencias-filter-form.module-filter-bar .primary-button,
+.consultas-filter-form.module-filter-bar .primary-button {
+  min-width: 142px;
 }
 
 @media (max-width: 680px) {
   .transferencias-filter-form.module-filter-bar,
   .consultas-filter-form.module-filter-bar {
     grid-template-columns: 1fr;
+  }
+
+  .inventory-action-submit {
+    width: 100%;
+    justify-self: stretch;
   }
 }
 

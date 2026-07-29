@@ -44,6 +44,11 @@ type InventoryView =
   | "movimientos";
 type DailyStockEntryMode = "paquetes" | "unidades";
 type GeneralStockAdjustmentDirection = "entrada" | "salida";
+type InventoryCategoryOption = {
+  idCategoriaInventario: string;
+  nombreCategoria: string;
+  itemCount: number;
+};
 
 type InventarioPanelProps = {
   token: string;
@@ -64,6 +69,13 @@ const DEFAULT_STOCK_ADJUSTMENT_REASON: Record<GeneralStockAdjustmentDirection, s
 };
 const DAILY_STOCK_REPLENISHMENT_REASON = "Reabastecimiento de stock diario";
 const UNIDADES_POR_PAQUETE = 20;
+const INVENTORY_CATEGORY_ORDER = [
+  "vasos",
+  "dulces",
+  "desechables",
+  "producto_con_licor",
+  "producto_sin_licor",
+];
 
 function messageFor(error: unknown) {
   if (error instanceof ApiClientError) {
@@ -85,7 +97,7 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 function itemLabel(item: { nombreItem: string; onzas: number | null }) {
-  return `${formatDisplayName(item.nombreItem)}${item.onzas ? ` · ${item.onzas} oz` : ""}`;
+  return item.nombreItem;
 }
 
 function equivalenciaPaquetes(vasosVendidos: number) {
@@ -127,6 +139,32 @@ function orderInventoryItemsForDisplay<T extends { nombreItem: string; onzas: nu
   });
 }
 
+function inventoryCategoryOptions(items: ExistenciaInventarioGeneral[]) {
+  const categories = new Map<string, InventoryCategoryOption>();
+
+  items.forEach((item) => {
+    const current = categories.get(item.idCategoriaInventario);
+    categories.set(item.idCategoriaInventario, {
+      idCategoriaInventario: item.idCategoriaInventario,
+      nombreCategoria: item.nombreCategoria,
+      itemCount: (current?.itemCount ?? 0) + 1,
+    });
+  });
+
+  return [...categories.values()].sort((left, right) => {
+    const leftOrder = INVENTORY_CATEGORY_ORDER.indexOf(left.nombreCategoria);
+    const rightOrder = INVENTORY_CATEGORY_ORDER.indexOf(right.nombreCategoria);
+    const normalizedLeftOrder = leftOrder === -1 ? Number.MAX_SAFE_INTEGER : leftOrder;
+    const normalizedRightOrder = rightOrder === -1 ? Number.MAX_SAFE_INTEGER : rightOrder;
+
+    if (normalizedLeftOrder !== normalizedRightOrder) {
+      return normalizedLeftOrder - normalizedRightOrder;
+    }
+
+    return left.nombreCategoria.localeCompare(right.nombreCategoria, "es");
+  });
+}
+
 function emptySnapshot(): InventarioSnapshot {
   return {
     ajustes: [],
@@ -156,12 +194,18 @@ function InventoryItemSelector({
   onSelect,
   ariaLabel,
   emptyMessage,
+  categories = [],
+  selectedCategoryId = "",
+  onSelectCategory,
 }: {
   items: ExistenciaInventarioGeneral[];
   selectedId: string;
   onSelect: (idItemInventario: string) => void;
   ariaLabel: string;
   emptyMessage: string;
+  categories?: InventoryCategoryOption[];
+  selectedCategoryId?: string;
+  onSelectCategory?: (idCategoriaInventario: string) => void;
 }) {
   return (
     <section className="inventory-item-selector" aria-label={ariaLabel}>
@@ -169,6 +213,30 @@ function InventoryItemSelector({
         <strong>Selecciona un item</strong>
         <small>Presiona una fila para continuar con el movimiento.</small>
       </div>
+
+      {categories.length > 0 && onSelectCategory ? (
+        <div className="inventory-category-filter">
+          <span>Categoría</span>
+          <div className="inventory-category-tabs" role="group" aria-label={`Categorías de ${ariaLabel}`}>
+            {categories.map((category) => {
+              const isSelected = category.idCategoriaInventario === selectedCategoryId;
+
+              return (
+                <button
+                  key={category.idCategoriaInventario}
+                  className={isSelected ? "active" : ""}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => onSelectCategory(category.idCategoriaInventario)}
+                >
+                  <span>{formatDisplayName(category.nombreCategoria)}</span>
+                  <b>{category.itemCount}</b>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       {items.length > 0 ? (
         <div className="inventory-item-table">
@@ -218,7 +286,11 @@ function SelectedInventoryItem({
     <div className="inventory-selected-item" aria-live="polite">
       <span>Item seleccionado</span>
       <strong>{item ? itemLabel(item) : "Sin seleccionar"}</strong>
-      <small>{item ? `Stock general: ${item.cantidadActual} unidades` : emptyMessage}</small>
+      <small>
+        {item
+          ? `${formatDisplayName(item.nombreCategoria)} · Stock general: ${item.cantidadActual} unidades`
+          : emptyMessage}
+      </small>
     </div>
   );
 }
@@ -227,7 +299,7 @@ function DailyRow({ item }: { item: ExistenciaInventarioDiario }) {
   return (
     <li className="inventory-row daily">
       <span>
-        <strong>{itemLabel(item)}</strong>
+        <strong>{item.nombreItem}</strong>
         <small>Control de jornada</small>
       </span>
       <dl>
@@ -302,7 +374,7 @@ function AdjustmentRow({
         <Icon size={18} strokeWidth={2.3} />
       </div>
       <span>
-        <strong>{formatDisplayName(adjustment.nombreItem)}</strong>
+        <strong>{adjustment.nombreItem}</strong>
         <small>
           {movementLabel} · {adjustment.cantidadAjuste} unidades · {adjustment.nombreUsuarioSolicitante}
         </small>
@@ -346,9 +418,11 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
   const [dailyStockEntryMode, setDailyStockEntryMode] = useState<DailyStockEntryMode>("paquetes");
   const [cantidadPaquetes, setCantidadPaquetes] = useState("1");
   const [cantidadUnidadesSueltas, setCantidadUnidadesSueltas] = useState("1");
+  const [idCategoriaConsumo, setIdCategoriaConsumo] = useState("");
   const [idItemConsumo, setIdItemConsumo] = useState("");
   const [cantidadConsumida, setCantidadConsumida] = useState("1");
   const [observacionConsumo, setObservacionConsumo] = useState("");
+  const [idCategoriaAjuste, setIdCategoriaAjuste] = useState("");
   const [idItemAjuste, setIdItemAjuste] = useState("");
   const [sentidoAjuste, setSentidoAjuste] = useState<GeneralStockAdjustmentDirection>("entrada");
   const [cantidadAjuste, setCantidadAjuste] = useState("1");
@@ -409,7 +483,7 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
     consumo: {
       eyebrow: "Consumo operativo",
       title: "Consumo diario",
-      lead: "Registra los desechables consumidos durante la jornada abierta.",
+      lead: "Registra consumibles por categoría durante la jornada abierta.",
     },
     ajuste: {
       eyebrow: "Inventario general",
@@ -435,25 +509,12 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
       const orderedPackageItems = orderedGeneralItems.filter(
         (item) => item.tipoControl === "automatico_por_venta" && Boolean(item.idTamanoVaso),
       );
-      const orderedManualItems = orderedGeneralItems.filter(
-        (item) => item.tipoControl === "manual_por_consumo",
-      );
       setSnapshot(response);
       setLoadState("success");
       setIdItemPaquete((current) =>
         orderedPackageItems.some((item) => item.idItemInventario === current)
           ? current
           : (firstPackageItem(orderedGeneralItems)?.idItemInventario ?? ""),
-      );
-      setIdItemConsumo((current) =>
-        orderedManualItems.some((item) => item.idItemInventario === current)
-          ? current
-          : (firstManualItem(orderedGeneralItems)?.idItemInventario ?? ""),
-      );
-      setIdItemAjuste((current) =>
-        orderedGeneralItems.some((item) => item.idItemInventario === current)
-          ? current
-          : (orderedGeneralItems[0]?.idItemInventario ?? ""),
       );
     } catch (error) {
       setLoadState("error");
@@ -480,6 +541,54 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
     () => generalItems.filter((item) => item.tipoControl === "manual_por_consumo"),
     [generalItems],
   );
+  const manualCategories = useMemo(
+    () => inventoryCategoryOptions(manualItems),
+    [manualItems],
+  );
+  const adjustmentCategories = useMemo(
+    () => inventoryCategoryOptions(generalItems),
+    [generalItems],
+  );
+  const visibleManualItems = useMemo(
+    () => manualItems.filter((item) => item.idCategoriaInventario === idCategoriaConsumo),
+    [idCategoriaConsumo, manualItems],
+  );
+  const visibleAdjustmentItems = useMemo(
+    () => generalItems.filter((item) => item.idCategoriaInventario === idCategoriaAjuste),
+    [generalItems, idCategoriaAjuste],
+  );
+
+  useEffect(() => {
+    setIdCategoriaConsumo((current) =>
+      manualCategories.some((category) => category.idCategoriaInventario === current)
+        ? current
+        : (manualCategories[0]?.idCategoriaInventario ?? ""),
+    );
+  }, [manualCategories]);
+
+  useEffect(() => {
+    setIdItemConsumo((current) =>
+      visibleManualItems.some((item) => item.idItemInventario === current)
+        ? current
+        : (visibleManualItems[0]?.idItemInventario ?? ""),
+    );
+  }, [visibleManualItems]);
+
+  useEffect(() => {
+    setIdCategoriaAjuste((current) =>
+      adjustmentCategories.some((category) => category.idCategoriaInventario === current)
+        ? current
+        : (adjustmentCategories[0]?.idCategoriaInventario ?? ""),
+    );
+  }, [adjustmentCategories]);
+
+  useEffect(() => {
+    setIdItemAjuste((current) =>
+      visibleAdjustmentItems.some((item) => item.idItemInventario === current)
+        ? current
+        : (visibleAdjustmentItems[0]?.idItemInventario ?? ""),
+    );
+  }, [visibleAdjustmentItems]);
 
   const pendingAdjustments = useMemo(
     () => snapshot.ajustes.filter((adjustment) => adjustment.estadoAprobacion === "pendiente").length,
@@ -495,8 +604,26 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
     [snapshot.existenciasDiarias],
   );
   const selectedPackageItem = packageItems.find((item) => item.idItemInventario === idItemPaquete);
-  const selectedManualItem = manualItems.find((item) => item.idItemInventario === idItemConsumo);
-  const selectedAdjustmentItem = generalItems.find((item) => item.idItemInventario === idItemAjuste);
+  const selectedManualItem = visibleManualItems.find((item) => item.idItemInventario === idItemConsumo);
+  const selectedAdjustmentItem = visibleAdjustmentItems.find(
+    (item) => item.idItemInventario === idItemAjuste,
+  );
+
+  function handleConsumptionCategorySelect(idCategoriaInventario: string) {
+    const categoryItems = manualItems.filter(
+      (item) => item.idCategoriaInventario === idCategoriaInventario,
+    );
+    setIdCategoriaConsumo(idCategoriaInventario);
+    setIdItemConsumo(categoryItems[0]?.idItemInventario ?? "");
+  }
+
+  function handleAdjustmentCategorySelect(idCategoriaInventario: string) {
+    const categoryItems = generalItems.filter(
+      (item) => item.idCategoriaInventario === idCategoriaInventario,
+    );
+    setIdCategoriaAjuste(idCategoriaInventario);
+    setIdItemAjuste(categoryItems[0]?.idItemInventario ?? "");
+  }
 
   async function handlePackageSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -708,22 +835,22 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
           <PackageOpen size={18} strokeWidth={2.2} />
           <span>
             {lastAction.type === "paquete"
-              ? `Paquete registrado: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.unidadesDisponibles} unidades disponibles.`
+              ? `Paquete registrado: ${lastAction.response.nombreItem}, ${lastAction.response.unidadesDisponibles} unidades disponibles.`
               : lastAction.type === "reabastecimiento-diario"
                 ? lastAction.response.estadoAprobacion === "aprobado"
-                  ? `Stock diario reabastecido: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadAjuste} unidades ingresadas.`
-                  : `Solicitud de reabastecimiento registrada: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadAjuste} unidades pendientes de aprobacion.`
+                  ? `Stock diario reabastecido: ${lastAction.response.nombreItem}, ${lastAction.response.cantidadAjuste} unidades ingresadas.`
+                  : `Solicitud de reabastecimiento registrada: ${lastAction.response.nombreItem}, ${lastAction.response.cantidadAjuste} unidades pendientes de aprobacion.`
               : lastAction.type === "consumo"
-                ? `Consumo registrado: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadConsumida} unidades.`
+                ? `Consumo registrado: ${lastAction.response.nombreItem}, ${lastAction.response.cantidadConsumida} unidades.`
               : lastAction.type === "ajuste"
                 ? lastAction.response.estadoAprobacion === "aprobado"
                     ? lastAction.response.sentidoAjuste === "entrada"
-                      ? `Entrada registrada: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadAjuste} unidades agregadas al stock general.`
-                      : `Salida registrada: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadAjuste} unidades retiradas del stock general.`
-                    : `Solicitud de ${lastAction.response.sentidoAjuste} registrada: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadAjuste} unidades pendientes de aprobacion.`
+                      ? `Entrada registrada: ${lastAction.response.nombreItem}, ${lastAction.response.cantidadAjuste} unidades agregadas al stock general.`
+                      : `Salida registrada: ${lastAction.response.nombreItem}, ${lastAction.response.cantidadAjuste} unidades retiradas del stock general.`
+                    : `Solicitud de ${lastAction.response.sentidoAjuste} registrada: ${lastAction.response.nombreItem}, ${lastAction.response.cantidadAjuste} unidades pendientes de aprobacion.`
                   : lastAction.type === "ajuste-aprobado"
-                    ? `Ajuste aprobado: ${formatDisplayName(lastAction.response.nombreItem)}, ${lastAction.response.cantidadAjuste} unidades.`
-                    : `Ajuste rechazado: ${formatDisplayName(lastAction.response.nombreItem)}.`}
+                    ? `Ajuste aprobado: ${lastAction.response.nombreItem}, ${lastAction.response.cantidadAjuste} unidades.`
+                    : `Ajuste rechazado: ${lastAction.response.nombreItem}.`}
           </span>
         </div>
       ) : null}
@@ -938,7 +1065,7 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
             </div>
 
             <button
-              className="primary-button full"
+              className="primary-button inventory-action-submit"
               type="submit"
               disabled={
                 packageItems.length === 0
@@ -965,18 +1092,21 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
           >
             <div className="panel-title">
               <div>
-                <h2>Consumo diario de desechables</h2>
-                <p>Items manuales desde stock general</p>
+                <h2>Consumo diario</h2>
+                <p>Selecciona una categoría y registra el consumible utilizado</p>
               </div>
               <ClipboardList size={22} strokeWidth={2.2} />
             </div>
 
             <InventoryItemSelector
-              items={manualItems}
+              items={visibleManualItems}
               selectedId={idItemConsumo}
               onSelect={setIdItemConsumo}
-              ariaLabel="Desechables disponibles para registrar consumo"
-              emptyMessage="No hay items configurados para consumo manual."
+              ariaLabel="Consumibles disponibles para registrar consumo"
+              emptyMessage="No hay items activos en esta categoría."
+              categories={manualCategories}
+              selectedCategoryId={idCategoriaConsumo}
+              onSelectCategory={handleConsumptionCategorySelect}
             />
 
             <div className="inventory-action-fields">
@@ -1011,9 +1141,9 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
             </div>
 
             <button
-              className="primary-button full"
+              className="primary-button inventory-action-submit"
               type="submit"
-              disabled={isSubmittingConsumption || manualItems.length === 0 || !hasOpenCashBox}
+              disabled={isSubmittingConsumption || visibleManualItems.length === 0 || !hasOpenCashBox}
             >
               <ClipboardList size={18} strokeWidth={2.2} />
               {isSubmittingConsumption ? "Registrando" : "Registrar consumo"}
@@ -1033,11 +1163,14 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
             </div>
 
             <InventoryItemSelector
-              items={generalItems}
+              items={visibleAdjustmentItems}
               selectedId={idItemAjuste}
               onSelect={setIdItemAjuste}
               ariaLabel={`Productos disponibles para ${sentidoAjuste} en el stock general`}
-              emptyMessage="No hay productos de inventario general disponibles."
+              emptyMessage="No hay productos activos en esta categoría."
+              categories={adjustmentCategories}
+              selectedCategoryId={idCategoriaAjuste}
+              onSelectCategory={handleAdjustmentCategorySelect}
             />
 
             <div className="inventory-action-fields">
@@ -1097,9 +1230,9 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
             </div>
 
             <button
-              className="primary-button full"
+              className="primary-button inventory-action-submit"
               type="submit"
-              disabled={isSubmittingAdjustment || snapshot.existenciasGenerales.length === 0}
+              disabled={isSubmittingAdjustment || visibleAdjustmentItems.length === 0}
             >
               <SlidersHorizontal size={18} strokeWidth={2.2} />
               {isSubmittingAdjustment ? adjustmentSubmittingLabel : adjustmentSubmitLabel}
@@ -1192,8 +1325,4 @@ export function InventarioPanel({ token, role }: InventarioPanelProps) {
 
 function firstPackageItem(items: ExistenciaInventarioGeneral[]) {
   return items.find((item) => item.tipoControl === "automatico_por_venta" && Boolean(item.idTamanoVaso));
-}
-
-function firstManualItem(items: ExistenciaInventarioGeneral[]) {
-  return items.find((item) => item.tipoControl === "manual_por_consumo");
 }

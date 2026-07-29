@@ -258,6 +258,21 @@ export function TransferenciasPanel({ role, token }: TransferenciasPanelProps) {
         </div>
       </header>
 
+      <form className="transferencias-filter-form module-filter-bar panel" onSubmit={actualizarConsulta}>
+        <label className="form-field">
+          <span>Fecha inicial</span>
+          <input className="field-control plain" type="date" value={fechaInicio} onChange={(event) => setFechaInicio(event.target.value)} />
+        </label>
+        <label className="form-field">
+          <span>Fecha final</span>
+          <input className="field-control plain" type="date" value={fechaFin} onChange={(event) => setFechaFin(event.target.value)} />
+        </label>
+        <button className="primary-button" type="submit" disabled={loadState === "loading"}>
+          <RefreshCw size={18} aria-hidden="true" />
+          Consultar
+        </button>
+      </form>
+
       <div className="transferencias-summary-grid" aria-label="Resumen de transferencias">
         <article className="transferencias-summary-card">
           <span>Pendientes</span>
@@ -280,21 +295,6 @@ export function TransferenciasPanel({ role, token }: TransferenciasPanelProps) {
           <small>Adjuntos en el periodo</small>
         </article>
       </div>
-
-      <form className="transferencias-filter-form module-filter-bar panel" onSubmit={actualizarConsulta}>
-        <label className="form-field">
-          <span>Fecha inicial</span>
-          <input className="field-control plain" type="date" value={fechaInicio} onChange={(event) => setFechaInicio(event.target.value)} />
-        </label>
-        <label className="form-field">
-          <span>Fecha final</span>
-          <input className="field-control plain" type="date" value={fechaFin} onChange={(event) => setFechaFin(event.target.value)} />
-        </label>
-        <button className="primary-button" type="submit" disabled={loadState === "loading"}>
-          <RefreshCw size={18} aria-hidden="true" />
-          Consultar
-        </button>
-      </form>
 
       {errorMessage ? (
         <div className="error-alert transferencias-alert" role="alert">

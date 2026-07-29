@@ -30,6 +30,9 @@ Gestionar stock general, stock diario de vasos, consumos manuales, perdidas y aj
 - Registro de conteo fisico final, diferencia y cantidad teorica.
 - Arrastre del remanente de vasos al abrir la siguiente caja: se conserva el conteo fisico final o, en su ausencia, el saldo teorico.
 - Consumo manual de dulces, desechables y bolsas de producto con o sin licor desde stock general.
+- Separación del consumo diario por categoría: dulces, desechables, producto con
+  licor y producto sin licor.
+- Separación del ajuste general por categoría, conservando además los vasos.
 - Solicitudes administrativas de entrada o salida del stock general y decisión
   gerencial de aprobar o rechazar.
 - Aplicacion directa de entradas o salidas del stock general por gerente.
@@ -37,6 +40,20 @@ Gestionar stock general, stock diario de vasos, consumos manuales, perdidas y aj
   borrar su historial.
 - Presentación de categorías e items sin guiones bajos y con capitalización
   legible, manteniendo sus identificadores técnicos sin cambios.
+- Sincronización del nombre y la categoría visibles con el registro vigente de
+  Catálogos cada vez que se actualiza Inventario.
+- La sincronización por `idItemInventario` también cubre stock diario, consumo,
+  devoluciones, pérdidas, solicitudes y movimientos. El nombre visible conserva
+  exactamente la escritura vigente en Catálogos.
+- Los registros históricos y la gestión de evidencias de vasos rotos resuelven
+  igualmente el nombre vigente por `idItemInventario`; no reconstruyen la
+  etiqueta desde las onzas.
+- Stock diario, carga diaria, devolución al general, vasos rotos, ajuste general
+  y movimientos muestran únicamente ese nombre canónico; no vuelven a anexar
+  `· N oz` cuando el tamaño ya forma parte del nombre.
+- Acciones principales de carga diaria, consumo y ajuste general con ancho
+  compacto en escritorio, equivalente a `Devolver al general`, y ancho completo
+  solo cuando la pantalla pequeña requiere apilarlas.
 
 ## Permisos
 
@@ -51,6 +68,13 @@ Gestionar stock general, stock diario de vasos, consumos manuales, perdidas y aj
 - El ingreso al stock general no requiere caja abierta.
 - El ajuste general permite entrada o salida. El gerente lo aplica directamente;
   el administrador deja una solicitud pendiente.
+- Los filtros de categoría solo organizan la interfaz. Las operaciones continúan
+  enviando el `idItemInventario` y el backend mantiene todas las validaciones.
+- Cambiar el nombre en Catálogos no crea otro producto ni modifica inventario:
+  todas las vistas resuelven la etiqueta vigente usando el mismo
+  `idItemInventario`.
+- Al cambiar de categoría también cambia la selección de item, evitando enviar
+  accidentalmente un producto oculto de la categoría anterior.
 - La caja abierta condiciona las operaciones diarias: paquetes, unidades
   sueltas, devoluciones, pérdidas, consumos y conteos de vasos.
 - El stock diario de vasos no queda vacio por cambio de jornada cuando existe remanente.

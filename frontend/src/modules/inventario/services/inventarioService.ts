@@ -1,5 +1,5 @@
 import { ApiClientError, apiClient } from "../../../shared/services/apiClient";
-import { obtenerItemsInventario } from "../../catalogos/services/catalogosService";
+import { obtenerItemsInventarioGestion } from "../../catalogos/services/catalogosService";
 import type {
   AjusteInventario,
   ConsumoDiarioInventarioResponse,
@@ -16,6 +16,11 @@ import type {
   SolicitarAjusteInventarioRequest,
   VentasVasosDiarias,
 } from "../types";
+
+type ExistenciaInventarioGeneralApi = Omit<
+  ExistenciaInventarioGeneral,
+  "idCategoriaInventario" | "nombreCategoria"
+>;
 
 function jsonBody<T>(payload: T) {
   return JSON.stringify(payload);
@@ -35,7 +40,7 @@ function optionalQuery(params: Record<string, string | undefined>) {
 }
 
 export function obtenerExistenciasGenerales(token: string) {
-  return apiClient.get<ExistenciaInventarioGeneral[]>("/inventario/existencias/general", { token });
+  return apiClient.get<ExistenciaInventarioGeneralApi[]>("/inventario/existencias/general", { token });
 }
 
 export function obtenerExistenciasDiariasAbierta(token: string) {
@@ -159,22 +164,44 @@ export async function obtenerInventarioSnapshot(token: string): Promise<Inventar
     existenciasDiarias,
     ajustes,
     ventasVasosDiarias,
-    itemsInventarioActivos,
+    itemsInventario,
   ] = await Promise.all([
     obtenerExistenciasGenerales(token),
     obtenerExistenciasDiariasAbiertaOpcional(token),
     obtenerAjustesInventario(token),
     obtenerVentasVasosDiariaAbierta(token),
-    obtenerItemsInventario(token),
+    obtenerItemsInventarioGestion(token),
   ]);
-  const idsItemsActivos = new Set(itemsInventarioActivos.map((item) => item.idItemInventario));
+  const itemsPorId = new Map(
+    itemsInventario.map((item) => [item.idItemInventario, item]),
+  );
+  const existenciasGeneralesActivas = existenciasGenerales.flatMap((existencia) => {
+    const itemCatalogo = itemsPorId.get(existencia.idItemInventario);
+
+    if (!itemCatalogo || itemCatalogo.estado !== "activo") {
+      return [];
+    }
+
+    return [{
+      ...existencia,
+      idCategoriaInventario: itemCatalogo.idCategoriaInventario,
+      nombreCategoria: itemCatalogo.nombreCategoria,
+      nombreItem: itemCatalogo.nombreItem,
+    }];
+  });
+  const existenciasDiariasActualizadas = existenciasDiarias.map((existencia) => ({
+    ...existencia,
+    nombreItem: itemsPorId.get(existencia.idItemInventario)?.nombreItem ?? existencia.nombreItem,
+  }));
+  const ajustesActualizados = ajustes.map((ajuste) => ({
+    ...ajuste,
+    nombreItem: itemsPorId.get(ajuste.idItemInventario)?.nombreItem ?? ajuste.nombreItem,
+  }));
 
   return {
-    ajustes,
-    existenciasDiarias,
-    existenciasGenerales: existenciasGenerales.filter((item) =>
-      idsItemsActivos.has(item.idItemInventario),
-    ),
+    ajustes: ajustesActualizados,
+    existenciasDiarias: existenciasDiariasActualizadas,
+    existenciasGenerales: existenciasGeneralesActivas,
     ventasVasosDiarias,
   };
 }

@@ -3,7 +3,6 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { UserRole } from "../../../app/routes/appRoutes";
 import { ConfirmationDialog } from "../../../shared/components/ConfirmationDialog";
 import { ApiClientError } from "../../../shared/services/apiClient";
-import { formatDisplayName } from "../../../shared/utils/displayText";
 import { solicitarAjusteInventario } from "../services/inventarioService";
 import type { ExistenciaInventarioDiario } from "../types";
 
@@ -26,7 +25,7 @@ function messageFor(error: unknown) {
 }
 
 function itemLabel(item: ExistenciaInventarioDiario) {
-  return `${formatDisplayName(item.nombreItem)}${item.onzas ? ` · ${item.onzas} oz` : ""}`;
+  return item.nombreItem;
 }
 
 export function DevolucionStockDiarioPanel({

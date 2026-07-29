@@ -10,9 +10,11 @@ reglas completas permanecen en la guia de cada modulo.
 
 | Cambio | Comportamiento vigente | Documento |
 | --- | --- | --- |
-| Comprobante de venta | Muestra hora, tipo con o sin licor, tamanos, cantidades, equivalencia en paquetes de 20 vasos y metodo de pago. | [Ventas y pagos](./04-ventas-y-pagos.md) |
+| Comprobante de venta | Muestra hora, tipo con o sin licor, tamaño, cantidad total de vasos y método de pago; tamaño y cantidad ocupan campos separados. | [Ventas y pagos](./04-ventas-y-pagos.md) |
 | Confirmacion visible | Despues de registrar, la pantalla desplaza el comprobante nuevo al area visible y respeta `prefers-reduced-motion`. | [Ventas y pagos](./04-ventas-y-pagos.md) |
-| Anulacion informada | El selector y el detalle muestran hora, tipo de venta, vasos, equivalencia y pagos antes de confirmar. | [Ventas y pagos](./04-ventas-y-pagos.md) |
+| Anulación informada | El selector y el detalle muestran hora, tipo de venta, tamaño, cantidad total y pagos antes de confirmar, sin repetir la cantidad dentro del tipo de vaso. | [Ventas y pagos](./04-ventas-y-pagos.md) |
+| Nombre vigente en operación | Ventas y Cortesías toman el nombre actual del vaso en Catálogos; precios, promociones y resúmenes conservan el tamaño estructural en onzas. | [Catálogos](./03-catalogos.md) |
+| Numeración de anulación | La columna `N.º` desciende junto con el listado de ventas más recientes. | [Ventas y pagos](./04-ventas-y-pagos.md) |
 | Navegación segura | Ventas, Cortesía y Anulación usan vistas separadas; la acción destructiva ya no aparece dentro del formulario de venta. | [Ventas y pagos](./04-ventas-y-pagos.md) |
 | Jornada operativa | El registro toma el `idCajaDiaria` abierto y usa su `fechaOperacion` para resolver precios y promociones, incluso si el contenedor ya cambio de dia en UTC. | [Ventas y pagos](./04-ventas-y-pagos.md) |
 | Consultas | Cada venta conserva esos datos y las anuladas permanecen como trazabilidad sin aportar a totales vigentes. | [Consultas y evidencias](./11-consultas.md) |
@@ -35,6 +37,7 @@ locales y publicos respondieron correctamente.
 | Limite de carga | Frontend, Spring, Nginx y Storage quedan alineados para transportar y guardar evidencias de hasta 20 MB/MiB con margen multipart. | [Evidencias integradas](./09-evidencias.md) |
 | Navegacion al visor | Al elegir un soporte, la pagina desplaza suavemente su vista previa al area visible. | [Evidencias integradas](./09-evidencias.md) |
 | Transferencias | Pendientes, validadas y rechazadas conservan visor, descarga y soportes historicos segun el rol. | [Transferencias](./10-transferencias.md) |
+| Filtros operativos | Transferencias muestra el periodo antes de sus indicadores y comparte con Consultas el tamaño compacto de la acción usado en Auditoría. | [Transferencias](./10-transferencias.md) |
 | Lenguaje operativo | La interfaz usa `Sistema` y mensajes funcionales; no expone nombres de API ni referencias RF al usuario. | [Consultas y evidencias](./11-consultas.md) |
 
 El cliente de Storage fue validado contra el contenedor real y el bucket
@@ -59,7 +62,7 @@ el multipart de evidencia.
 
 | Cambio | Comportamiento vigente | Documento |
 | --- | --- | --- |
-| Pestañas | `Stock diario`, `Cargar stock diario`, `Consumo diario`, `Ingreso al stock general` y `Movimientos y solicitudes` tienen vistas independientes. | [Inventario operativo](./05-inventario-operativo.md) |
+| Pestañas | Stock diario, carga diaria, consumo, devolución, vasos rotos, ajuste general y movimientos tienen vistas independientes. | [Inventario operativo](./05-inventario-operativo.md) |
 | Encabezado contextual | Titulo, categoria e instruccion cambian con la pestaña activa. | [Inventario operativo](./05-inventario-operativo.md) |
 | Seleccion de item | Cada operacion selecciona un producto desde una lista y luego solicita solo sus campos necesarios. | [Inventario operativo](./05-inventario-operativo.md) |
 | Paquetes | Cada paquete mueve 20 vasos de stock general a stock diario. El formulario no muestra unidades rotas y envia cero. | [Inventario operativo](./05-inventario-operativo.md) |
@@ -67,6 +70,11 @@ el multipart de evidencia.
 | Roles | Gerente aplica directamente; administrador crea solicitud pendiente para decision gerencial. | [Inventario operativo](./05-inventario-operativo.md) |
 | Presentacion | El reabastecimiento se suma a `Ingresada`; no existe un indicador separado `Trasladada`. | [Inventario operativo](./05-inventario-operativo.md) |
 | Ajuste general | Permite entradas o salidas: gerente directo y administrador mediante solicitud pendiente. | [Inventario operativo](./05-inventario-operativo.md) |
+| Categorías operativas | Consumo diario y ajuste general filtran la lista por categoría; ajuste conserva también los vasos. | [Inventario operativo](./05-inventario-operativo.md) |
+| Nombre vigente | Inventario, pérdidas y movimientos resuelven el nombre por `idItemInventario`; Ventas y Cortesías enlazan el `idTamanoVaso` con su item automático activo. Todas las vistas conservan la escritura actual de Catálogos. | [Inventario operativo](./05-inventario-operativo.md) |
+| Nombre de vasos | Las vistas de Inventario muestran solo el nombre canónico del vaso y no repiten el tamaño con el sufijo `· N oz`. | [Inventario operativo](./05-inventario-operativo.md) |
+| Acciones compactas | Carga diaria, consumo y ajuste general usan el mismo ancho de acción que la devolución en escritorio y se expanden solo en móvil. | [Inventario operativo](./05-inventario-operativo.md) |
+| Categorías en Catálogos | La administración filtra desechables, dulces y productos con o sin licor; los vasos automáticos permanecen ocultos y conservan su operación estructural. | [Catálogos](./03-catalogos.md) |
 
 Las reglas de inventario fueron validadas con 17 pruebas de integracion
 exitosas, incluidos reabastecimiento directo, solicitud/aprobacion, caja
